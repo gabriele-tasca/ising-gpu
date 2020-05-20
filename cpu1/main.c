@@ -4,13 +4,15 @@
 #include <string.h>
 #include <time.h>  
 
-#define L 150
+#define L 200
 static int AREA = L*L;
 static int NTOT = L*L - (4*L -4);
 
-#define T 6.
+// #define T 6.
 // #define T 0.1
 // #define T 2.26918531421
+
+#define T 2.0
 
 #define J 1.
 
@@ -22,10 +24,10 @@ struct measure_plan {
     int t_measure_wait;
     int t_measure_interval; } 
 static PLAN = {
-    .steps_repeat = 128,
-    .t_max_sim = 500,
-    .t_measure_wait = 100,
-    .t_measure_interval = 25  };
+    .steps_repeat = 1,
+    .t_max_sim = 5000,
+    .t_measure_wait = 0,
+    .t_measure_interval = 2  };
 
 
 // average tracker struct 
@@ -148,6 +150,13 @@ double measure_m(short int grid[L][L]) {
 void measure_cycle(short int startgrid[L][L], struct measure_plan pl) {
     FILE *resf = fopen("results.txt", "w");
     short int grid[L][L];
+    fprintf(resf, "# cpu1\n");
+    fprintf(resf, "# parameters:\n# linear_size: %i\n", L);
+    fprintf(resf, "# temperature: %f\n#temp_start: %f\n# coupling: %f\n# repetitions: %i\n", T, 0., J, pl.steps_repeat);
+    fprintf(resf, "# simulation_t_max: %i\n# thermalization_time: %i\n# time_between_measurements: %i\n# base_random_seed: %i\n",  pl.t_max_sim, pl.t_measure_wait, pl.t_measure_interval, SEED);
+    fprintf(resf, "# extra:\n# area: %i\n# active_spins_excluding_boundaries:%i\n", AREA, NTOT);
+  
+
     fprintf(resf, "# columns: MC time -- magnetization\n");
 
     //OUTER REP LOOP
@@ -199,6 +208,7 @@ void measure_cycle(short int startgrid[L][L], struct measure_plan pl) {
 
     fprintf(resf, "# average of all simulations: %f +- %f\n", average(avg_of_all_sims_tr), stdev(avg_of_all_sims_tr));
     fprintf(resf, "# overall average: %f +- %f\n", average(overall_avg_tr), stdev(overall_avg_tr));
+    
     dump(grid);
 }
 
@@ -207,7 +217,7 @@ void measure_cycle(short int startgrid[L][L], struct measure_plan pl) {
 int main() {
     srand(SEED);
     short int startgrid[L][L];
-    init_t0(startgrid);
+    init_random(startgrid);
 
     // dump(startgrid);
 

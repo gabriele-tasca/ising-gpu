@@ -333,9 +333,10 @@ __global__ void dev_update_magnetization_tracker(MULTISPIN dev_grid[L*L], struct
 
 void parall_measure_cycle(MULTISPIN startgrid[L*L], float exp4, float exp8, curandState * const rngStates) {
     FILE *resf = fopen("results.txt", "w");
-    fprintf(resf, "# parameters:\n# linear size: %i\n# area: %i\n# active spins excluding boundaries:%i\n# ", L, AREA, NTOT);
-    fprintf(resf, "temperature: %f\n# base random seed: %f\n# coupling: %f\n# spin-coding size: %i\n# repetitions: %i\n# ", T, SEED, J, MULTISIZE, STEPS_REPEAT);
-    fprintf(resf, "total independent sims: %i\n# simulation t max: %i\n# thermalization time: %i\n# time between measurements: %i\n",  MULTISIZE*STEPS_REPEAT, T_MAX_SIM, T_MEASURE_WAIT, T_MEASURE_INTERVAL);
+    fprintf(resf, "# hard-coded parameters:\n# linear_size: %i\n# spin_coding_size: %i\n", L, MULTISIZE);
+    fprintf(resf, "# parameters:\n# temperature: %f\n# coupling: %f\n# repetitions: %i\n", T, J, STEPS_REPEAT);
+    fprintf(resf, "# simulation_t_max: %i\n# thermalization_time: %i\n# time_between_measurements: %i\n# base_random_seed: %i\n",  T_MAX_SIM, T_MEASURE_WAIT, T_MEASURE_INTERVAL, SEED);
+    fprintf(resf, "# extra:\n# area: %i\n# active_spins_excluding_boundaries:%i\n# total_independent_sims: %i\n", AREA, NTOT, MULTISIZE*STEPS_REPEAT);
 
     // device grid
     MULTISPIN * dev_grid;

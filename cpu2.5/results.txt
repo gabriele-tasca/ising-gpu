@@ -1,0 +1,210 @@
+# hard-coded parameters:
+# linear_size: 150
+# spin_coding_size: 32
+# parameters:
+# temperature: 2.269185
+#temp_start: 0.000000
+# coupling: 1.000000
+# repetitions: 3
+# simulation_t_max: 200
+# thermalization_time: 50
+# time_between_measurements: 5
+# base_random_seed: 1000
+# extra:
+# area: 22500
+# active_spins_excluding_boundaries:21904
+# total_independent_sims: 96
+# average of simulation 1
+: -0.676007 +- 0.020441
+# average of simulation 2
+: -0.676007 +- 0.020441
+# average of simulation 3
+: -0.676007 +- 0.020441
+# average of simulation 4
+: -0.676007 +- 0.020441
+# average of simulation 5
+: -0.676007 +- 0.020441
+# average of simulation 6
+: -0.676007 +- 0.020441
+# average of simulation 7
+: -0.676007 +- 0.020441
+# average of simulation 8
+: -0.676007 +- 0.020441
+# average of simulation 9
+: -0.676007 +- 0.020441
+# average of simulation 10
+: -0.676007 +- 0.020441
+# average of simulation 11
+: -0.676007 +- 0.020441
+# average of simulation 12
+: -0.676007 +- 0.020441
+# average of simulation 13
+: -0.676007 +- 0.020441
+# average of simulation 14
+: -0.676007 +- 0.020441
+# average of simulation 15
+: -0.676007 +- 0.020441
+# average of simulation 16
+: -0.676007 +- 0.020441
+# average of simulation 17
+: -0.676007 +- 0.020441
+# average of simulation 18
+: -0.676007 +- 0.020441
+# average of simulation 19
+: -0.676007 +- 0.020441
+# average of simulation 20
+: -0.676007 +- 0.020441
+# average of simulation 21
+: -0.676007 +- 0.020441
+# average of simulation 22
+: -0.676007 +- 0.020441
+# average of simulation 23
+: -0.676007 +- 0.020441
+# average of simulation 24
+: -0.676007 +- 0.020441
+# average of simulation 25
+: -0.676007 +- 0.020441
+# average of simulation 26
+: -0.676007 +- 0.020441
+# average of simulation 27
+: -0.676007 +- 0.020441
+# average of simulation 28
+: -0.676007 +- 0.020441
+# average of simulation 29
+: -0.676007 +- 0.020441
+# average of simulation 30
+: -0.676007 +- 0.020441
+# average of simulation 31
+: -0.676007 +- 0.020441
+# average of simulation 32
+: -0.676007 +- 0.020441
+# average of simulation 33
+: -0.686185 +- 0.017988
+# average of simulation 34
+: -0.686185 +- 0.017988
+# average of simulation 35
+: -0.686185 +- 0.017988
+# average of simulation 36
+: -0.686185 +- 0.017988
+# average of simulation 37
+: -0.686185 +- 0.017988
+# average of simulation 38
+: -0.686185 +- 0.017988
+# average of simulation 39
+: -0.686185 +- 0.017988
+# average of simulation 40
+: -0.686185 +- 0.017988
+# average of simulation 41
+: -0.686185 +- 0.017988
+# average of simulation 42
+: -0.686185 +- 0.017988
+# average of simulation 43
+: -0.686185 +- 0.017988
+# average of simulation 44
+: -0.686185 +- 0.017988
+# average of simulation 45
+: -0.686185 +- 0.017988
+# average of simulation 46
+: -0.686185 +- 0.017988
+# average of simulation 47
+: -0.686185 +- 0.017988
+# average of simulation 48
+: -0.686185 +- 0.017988
+# average of simulation 49
+: -0.686185 +- 0.017988
+# average of simulation 50
+: -0.686185 +- 0.017988
+# average of simulation 51
+: -0.686185 +- 0.017988
+# average of simulation 52
+: -0.686185 +- 0.017988
+# average of simulation 53
+: -0.686185 +- 0.017988
+# average of simulation 54
+: -0.686185 +- 0.017988
+# average of simulation 55
+: -0.686185 +- 0.017988
+# average of simulation 56
+: -0.686185 +- 0.017988
+# average of simulation 57
+: -0.686185 +- 0.017988
+# average of simulation 58
+: -0.686185 +- 0.017988
+# average of simulation 59
+: -0.686185 +- 0.017988
+# average of simulation 60
+: -0.686185 +- 0.017988
+# average of simulation 61
+: -0.686185 +- 0.017988
+# average of simulation 62
+: -0.686185 +- 0.017988
+# average of simulation 63
+: -0.686185 +- 0.017988
+# average of simulation 64
+: -0.686185 +- 0.017988
+# average of simulation 65
+: -0.693012 +- 0.028154
+# average of simulation 66
+: -0.693012 +- 0.028154
+# average of simulation 67
+: -0.693012 +- 0.028154
+# average of simulation 68
+: -0.693012 +- 0.028154
+# average of simulation 69
+: -0.693012 +- 0.028154
+# average of simulation 70
+: -0.693012 +- 0.028154
+# average of simulation 71
+: -0.693012 +- 0.028154
+# average of simulation 72
+: -0.693012 +- 0.028154
+# average of simulation 73
+: -0.693012 +- 0.028154
+# average of simulation 74
+: -0.693012 +- 0.028154
+# average of simulation 75
+: -0.693012 +- 0.028154
+# average of simulation 76
+: -0.693012 +- 0.028154
+# average of simulation 77
+: -0.693012 +- 0.028154
+# average of simulation 78
+: -0.693012 +- 0.028154
+# average of simulation 79
+: -0.693012 +- 0.028154
+# average of simulation 80
+: -0.693012 +- 0.028154
+# average of simulation 81
+: -0.693012 +- 0.028154
+# average of simulation 82
+: -0.693012 +- 0.028154
+# average of simulation 83
+: -0.693012 +- 0.028154
+# average of simulation 84
+: -0.693012 +- 0.028154
+# average of simulation 85
+: -0.693012 +- 0.028154
+# average of simulation 86
+: -0.693012 +- 0.028154
+# average of simulation 87
+: -0.693012 +- 0.028154
+# average of simulation 88
+: -0.693012 +- 0.028154
+# average of simulation 89
+: -0.693012 +- 0.028154
+# average of simulation 90
+: -0.693012 +- 0.028154
+# average of simulation 91
+: -0.693012 +- 0.028154
+# average of simulation 92
+: -0.693012 +- 0.028154
+# average of simulation 93
+: -0.693012 +- 0.028154
+# average of simulation 94
+: -0.693012 +- 0.028154
+# average of simulation 95
+: -0.693012 +- 0.028154
+# average of simulation 96
+: -0.693012 +- 0.028154
+# overall average 
+: -0.685068 +- 0.006987

@@ -4,42 +4,32 @@
 #include <string.h>
 #include <time.h>
 
+// hard parameters
 #define L 150
-
-#define T 6.
-// #define T 0.01
-// #define T 2.26918531421
-
-#define J 1.
-
 #define MULTISPIN unsigned int
 #define MULTISIZE 32
 // #define MULTISPIN unsigned long int
 // #define MULTISIZE 64
 
-
-#define SEED 1002
+#define STEPS_REPEAT 3
 
 const int AREA = L*L;
 const int NTOT = (L-2)*(L-2);
-// static const double EXP4_TRESHOLD = exp( -(4.*J) / T);
-// static const double EXP8_TRESHOLD = exp( -(8.*J) / T);
 
-#define STEPS_REPEAT 2
-#define T_MAX_SIM 100
-#define T_MEASURE_WAIT 50
-#define T_MEASURE_INTERVAL 5
 
-// struct measure_plan {
-//     int steps_repeat;
-//     int t_max_sim;
-//     int t_measure_wait;
-//     int t_measure_interval; } 
-// const PLAN = {
-//     .steps_repeat = STEPS_REPEAT,
-//     .t_max_sim = T_MAX_SIM,
-//     .t_measure_wait = T_MEASURE_WAIT,
-//     .t_measure_interval = T_MEASURE_INTERVAL  };
+//external parameters
+
+struct parameters {
+    float t;
+    float t_start;
+    float j;
+    int steps_repeat;
+    int t_max_sim;
+    int t_measure_wait;
+    int t_measure_interval;
+    int seed;
+};
+
 
 
 // average tracker struct
@@ -309,37 +299,67 @@ void update_magnetization_tracker( struct multiavg_tr * tr_p, MULTISPIN grid[L*L
 //     tr_p->sum_squares[k] += (newval*newval);
 // }
 
-void measure_cycle(MULTISPIN startgrid[L*L], double exp4, double exp8) {
-    FILE *resf = fopen("results.txt", "w");
-    fprintf(resf, "# parameters:\n# linear size: %i\n# area: %i\n# active spins excluding boundaries:%i\n# ", L, AREA, NTOT);
-    fprintf(resf, "temperature: %f\n# coupling: %f\n# spin-coding size: %i\n# repetitions: %i\n# ", T, J, MULTISIZE, STEPS_REPEAT);
-    fprintf(resf, "total independent sims: %i\n# simulation t max: %i\n# thermalization time: %i\n# time between measurements: %i\n",  MULTISIZE*STEPS_REPEAT, T_MAX_SIM, T_MEASURE_WAIT, T_MEASURE_INTERVAL);
 
+int main() {
+    // read params
+
+    FILE *param_f = fopen("params.txt", "r");
+    struct parameters par;
+
+    fscanf(param_f, "temperature %f\ntemperature_start %f\ncoupling %f\nsimulation_t_max %i\nthermalization_time %i\ntime_between_measurements %i\nbase_random_seed %i\n", 
+                    &(par.t),     &(par.t_start),     &(par.j),    &(par.t_max_sim),   &(par.t_measure_wait),   &(par.t_measure_interval),       &(par.seed));
+    printf("%f\n", par.t);
+    printf("%f\n", par.t_start);
+    printf("%f\n", par.j);
+    printf("%i\n", par.t_max_sim);
+    printf("%i\n", par.t_measure_wait);
+    printf("%i\n", par.t_measure_interval);
+    printf("%i\n", par.seed);
+    fclose(param_f);
+
+
+    srand(par.seed);
+    MULTISPIN startgrid[L*L];
+    init_t0_grid(startgrid);
+
+
+
+    const double EXP4 = exp( -(4.*par.j) / par.t);
+    const double EXP8 = exp( -(8.*par.j) / par.t);
+
+    // measure cycle
+    FILE *resf = fopen("results.txt", "w");
+    fprintf(resf, "# cpu2\n");
+    fprintf(resf, "# hard-coded parameters:\n# linear_size: %i\n# spin_coding_size: %i\n", L, MULTISIZE);
+    fprintf(resf, "# parameters:\n# temperature: %f\n#temp_start: %f\n# coupling: %f\n# repetitions: %i\n", par.t, par.t_start, par.j, STEPS_REPEAT);
+    fprintf(resf, "# simulation_t_max: %i\n# thermalization_time: %i\n# time_between_measurements: %i\n# base_random_seed: %i\n",  par.t_max_sim, par.t_measure_wait, par.t_measure_interval, par.seed);
+    fprintf(resf, "# extra:\n# area: %i\n# active_spins_excluding_boundaries:%i\n# total_independent_sims: %i\n", AREA, NTOT, MULTISIZE*STEPS_REPEAT);
+    
     MULTISPIN grid[L*L];
-    double n_measures_per_sim = (double) ((T_MAX_SIM - T_MEASURE_WAIT)/T_MEASURE_INTERVAL);
+    double n_measures_per_sim = (double) ((par.t_max_sim - par.t_measure_wait)/par.t_measure_interval);
 
     //OUTER REP LOOP  
     struct multiavg_tr single_run_avgs = new_multiavg_tr(n_measures_per_sim);
 
     for( int krep=0; krep< STEPS_REPEAT; krep++) {
-        srand(SEED + krep);
+        srand(par.seed + krep);
         memcpy(grid, startgrid, L*L*sizeof(MULTISPIN) );
 
         // INNER SIM LOOPS
         printf("# simulation %i\n", krep+1);
-        printf("#    waiting thermalization for the first %i sim steps.\n", T_MEASURE_WAIT);
+        printf("#    waiting thermalization for the first %i sim steps.\n", par.t_measure_wait);
         int ksim=0;
-        for( ; ksim<T_MEASURE_WAIT; ksim++) {
-            update_grid_black(grid, exp4, exp8);
-            update_grid_white(grid, exp4, exp8);
+        for( ; ksim<par.t_measure_wait; ksim++) {
+            update_grid_black(grid, EXP4, EXP8);
+            update_grid_white(grid, EXP4, EXP8);
         }
-        printf("#    finished thermalization. running %i more simulation steps and performing %f measures.\n",(T_MAX_SIM - T_MEASURE_WAIT), n_measures_per_sim);
+        printf("#    finished thermalization. running %i more simulation steps and performing %f measures.\n",(par.t_max_sim - par.t_measure_wait), n_measures_per_sim);
 
-        for( ; ksim<T_MAX_SIM; ksim++) {
-            update_grid_black(grid, exp4, exp8);
-            update_grid_white(grid, exp4, exp8);
+        for( ; ksim<par.t_max_sim; ksim++) {
+            update_grid_black(grid, EXP4, EXP8);
+            update_grid_white(grid, EXP4, EXP8);
             
-            if( ksim % T_MEASURE_INTERVAL == 0) {
+            if( ksim % par.t_measure_interval == 0) {
                 update_magnetization_tracker(&single_run_avgs, grid, krep);
             }
         }
@@ -362,35 +382,8 @@ void measure_cycle(MULTISPIN startgrid[L*L], double exp4, double exp8) {
     multidump_a_few(grid);
 
 
-}
-
-int main() {
-
-    srand(SEED);
-    MULTISPIN startgrid[L*L];
-    init_t0_grid(startgrid);
 
 
-
-    // as far as I understand, the exponentials cannot be calculated in the global scope because they don't qualify
-    // as constant expressions, so they have to be calculated here and propagated all the way.
-    const double EXP4 = exp( -(4.*J) / T);
-    const double EXP8 = exp( -(8.*J) / T);
-
-    measure_cycle(startgrid, EXP4, EXP8);
-
-
-    // for(int x = 0; x<L; x++) {
-    //     for(int y = 0; y<L; y++) {
-    //         if( (x + y%2)%2 == 0 ) {
-    //             startgrid[x+y*L] = 0;
-    //         }
-    //         else {
-    //             startgrid[x+y*L] = 1;
-    //         }
-    //     }
-    // }
-    // multidump_first(startgrid);
 
     return 0;
 }

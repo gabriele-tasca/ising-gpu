@@ -5,7 +5,7 @@
 #include <curand.h>
 #include "curand_kernel.h"
 
-#define L 30
+#define L 200
 const int AREA = L*L;
 const int NTOT = (L-2)*(L-2);
 

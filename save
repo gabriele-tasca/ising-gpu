@@ -1,6 +1,5 @@
 #!/bin/bash
-mkdir --parents ../benchmarks/$1
-mv -i results.txt ../benchmarks/$1
-mv -i end.txt ../benchmarks/$1
-mv -i profile.txt ../benchmarks/$1
-
+mkdir --parents ../../benchmarks/$1
+mv -i results.txt ../../benchmarks/$1
+mv -i end.txt ../../benchmarks/$1
+mv -i profile.txt ../../benchmarks/$1

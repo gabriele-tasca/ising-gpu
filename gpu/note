@@ -1,8 +1,0 @@
-domande
-- è giusto ri-inizializzare il RNG per cambiare il seme?
-- syncthreads serve?
-
-to do
-- leggere T, L ecc da file
-- nthreads =/= ntot
-- benchmark

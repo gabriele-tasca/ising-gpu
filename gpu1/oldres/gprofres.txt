@@ -3,23 +3,23 @@ Flat profile:
 Each sample counts as 0.01 seconds.
   %   cumulative   self              self     total           
  time   seconds   seconds    calls   s/call   s/call  name    
- 38.49     56.91    56.91 9960040000     0.00     0.00  grid_step
- 24.74     93.50    36.59 2490010000     0.00     0.00  deltaH
- 22.76    127.15    33.65 2490010000     0.00     0.00  update_spin
-  6.29    136.45     9.30     1250     0.01     0.01  measure_m
-  3.23    141.23     4.78 2490010000     0.00     0.00  unitrand
-  1.24    143.06     1.83 430319148     0.00     0.00  flip
-  1.16    144.77     1.72     2500     0.00     0.03  update_grid_white
-  0.98    146.22     1.45        1     1.45     1.45  init_t0
-  0.90    147.55     1.33     2500     0.00     0.03  update_grid_black
-  0.31    148.01     0.46                             variance
-  0.01    148.03     0.02                             init_random
-  0.01    148.04     0.01        1     0.01     0.01  dump
-  0.00    148.04     0.00     2501     0.00     0.00  update_avg
-  0.00    148.04     0.00        4     0.00     0.00  average
-  0.00    148.04     0.00        3     0.00     0.00  new_avg_tr
-  0.00    148.04     0.00        3     0.00     0.00  stdev
-  0.00    148.04     0.00        1     0.00   146.12  measure_cycle
+ 35.61     12.65    12.65 5607424000     0.00     0.00  grid_step
+ 22.58     20.67     8.02 1401856000     0.00     0.00  deltaH
+ 19.15     27.47     6.80 1401856000     0.00     0.00  update_spin
+  7.95     30.30     2.82 1042481354     0.00     0.00  flip
+  6.26     32.52     2.22 1401856000     0.00     0.00  unitrand
+  2.68     33.47     0.95    64000     0.00     0.00  update_grid_white
+  2.40     34.32     0.85    64000     0.00     0.00  update_grid_black
+  1.86     34.98     0.66        1     0.66     0.66  init_t0
+  0.87     35.29     0.31     2560     0.00     0.00  measure_m
+  0.65     35.52     0.23                             variance
+  0.11     35.56     0.04                             init_random
+  0.00     35.56     0.00     4224     0.00     0.00  update_avg
+  0.00     35.56     0.00      258     0.00     0.00  average
+  0.00     35.56     0.00      130     0.00     0.00  new_avg_tr
+  0.00     35.56     0.00      130     0.00     0.00  stdev
+  0.00     35.56     0.00        1     0.00     0.00  dump
+  0.00     35.56     0.00        1     0.00    34.63  measure_cycle
 
  %         the percentage of the total running time of the
 time       program used by this function.
@@ -47,89 +47,91 @@ name       the name of the function.  This is the minor sort
 	   the function in the gprof listing. If the index is
 	   in parenthesis it shows where it would appear in
 	   the gprof listing if it were to be printed.
-
+
+
 Copyright (C) 2012-2020 Free Software Foundation, Inc.
 
 Copying and distribution of this file, with or without modification,
 are permitted in any medium without royalty provided the copyright
 notice and this notice are preserved.
-
+
+
 		     Call graph (explanation follows)
 
 
-granularity: each sample hit covers 2 byte(s) for 0.01% of 148.04 seconds
+granularity: each sample hit covers 2 byte(s) for 0.03% of 35.56 seconds
 
 index % time    self  children    called     name
                                                  <spontaneous>
-[1]     99.7    0.00  147.56                 main [1]
-                0.00  146.12       1/1           measure_cycle [2]
-                1.45    0.00       1/1           init_t0 [11]
+[1]     99.2    0.00   35.29                 main [1]
+                0.00   34.63       1/1           measure_cycle [2]
+                0.66    0.00       1/1           init_t0 [10]
 -----------------------------------------------
-                0.00  146.12       1/1           main [1]
-[2]     98.7    0.00  146.12       1         measure_cycle [2]
-                1.72   66.88    2500/2500        update_grid_white [5]
-                1.33   66.88    2500/2500        update_grid_black [6]
-                9.30    0.00    1250/1250        measure_m [8]
-                0.01    0.00       1/1           dump [14]
-                0.00    0.00    2501/2501        update_avg [15]
-                0.00    0.00       4/4           average [16]
-                0.00    0.00       3/3           new_avg_tr [17]
-                0.00    0.00       3/3           stdev [18]
+                0.00   34.63       1/1           main [1]
+[2]     97.4    0.00   34.63       1         measure_cycle [2]
+                0.95   16.26   64000/64000       update_grid_white [5]
+                0.85   16.26   64000/64000       update_grid_black [6]
+                0.31    0.00    2560/2560        measure_m [11]
+                0.00    0.00    4224/4224        update_avg [14]
+                0.00    0.00     258/258         average [15]
+                0.00    0.00     130/130         new_avg_tr [16]
+                0.00    0.00     130/130         stdev [17]
+                0.00    0.00       1/1           dump [18]
 -----------------------------------------------
-               16.83   50.05 1245005000/2490010000     update_grid_white [5]
-               16.83   50.05 1245005000/2490010000     update_grid_black [6]
-[3]     90.4   33.65  100.10 2490010000         update_spin [3]
-               36.59   56.91 2490010000/2490010000     deltaH [4]
-                4.78    0.00 2490010000/2490010000     unitrand [9]
-                1.83    0.00 430319148/430319148     flip [10]
+                3.40   12.86 700928000/1401856000     update_grid_white [5]
+                3.40   12.86 700928000/1401856000     update_grid_black [6]
+[3]     91.4    6.80   25.72 1401856000         update_spin [3]
+                8.02   12.65 1401856000/1401856000     deltaH [4]
+                2.82    0.00 1042481354/1042481354     flip [8]
+                2.22    0.00 1401856000/1401856000     unitrand [9]
 -----------------------------------------------
-               36.59   56.91 2490010000/2490010000     update_spin [3]
-[4]     63.2   36.59   56.91 2490010000         deltaH [4]
-               56.91    0.00 9960040000/9960040000     grid_step [7]
+                8.02   12.65 1401856000/1401856000     update_spin [3]
+[4]     58.1    8.02   12.65 1401856000         deltaH [4]
+               12.65    0.00 5607424000/5607424000     grid_step [7]
 -----------------------------------------------
-                1.72   66.88    2500/2500        measure_cycle [2]
-[5]     46.3    1.72   66.88    2500         update_grid_white [5]
-               16.83   50.05 1245005000/2490010000     update_spin [3]
+                0.95   16.26   64000/64000       measure_cycle [2]
+[5]     48.4    0.95   16.26   64000         update_grid_white [5]
+                3.40   12.86 700928000/1401856000     update_spin [3]
 -----------------------------------------------
-                1.33   66.88    2500/2500        measure_cycle [2]
-[6]     46.1    1.33   66.88    2500         update_grid_black [6]
-               16.83   50.05 1245005000/2490010000     update_spin [3]
+                0.85   16.26   64000/64000       measure_cycle [2]
+[6]     48.1    0.85   16.26   64000         update_grid_black [6]
+                3.40   12.86 700928000/1401856000     update_spin [3]
 -----------------------------------------------
-               56.91    0.00 9960040000/9960040000     deltaH [4]
-[7]     38.4   56.91    0.00 9960040000         grid_step [7]
+               12.65    0.00 5607424000/5607424000     deltaH [4]
+[7]     35.6   12.65    0.00 5607424000         grid_step [7]
 -----------------------------------------------
-                9.30    0.00    1250/1250        measure_cycle [2]
-[8]      6.3    9.30    0.00    1250         measure_m [8]
+                2.82    0.00 1042481354/1042481354     update_spin [3]
+[8]      7.9    2.82    0.00 1042481354         flip [8]
 -----------------------------------------------
-                4.78    0.00 2490010000/2490010000     update_spin [3]
-[9]      3.2    4.78    0.00 2490010000         unitrand [9]
+                2.22    0.00 1401856000/1401856000     update_spin [3]
+[9]      6.2    2.22    0.00 1401856000         unitrand [9]
 -----------------------------------------------
-                1.83    0.00 430319148/430319148     update_spin [3]
-[10]     1.2    1.83    0.00 430319148         flip [10]
+                0.66    0.00       1/1           main [1]
+[10]     1.9    0.66    0.00       1         init_t0 [10]
 -----------------------------------------------
-                1.45    0.00       1/1           main [1]
-[11]     1.0    1.45    0.00       1         init_t0 [11]
------------------------------------------------
-                                                 <spontaneous>
-[12]     0.3    0.46    0.00                 variance [12]
+                0.31    0.00    2560/2560        measure_cycle [2]
+[11]     0.9    0.31    0.00    2560         measure_m [11]
 -----------------------------------------------
                                                  <spontaneous>
-[13]     0.0    0.02    0.00                 init_random [13]
+[12]     0.6    0.23    0.00                 variance [12]
 -----------------------------------------------
-                0.01    0.00       1/1           measure_cycle [2]
-[14]     0.0    0.01    0.00       1         dump [14]
+                                                 <spontaneous>
+[13]     0.1    0.04    0.00                 init_random [13]
 -----------------------------------------------
-                0.00    0.00    2501/2501        measure_cycle [2]
-[15]     0.0    0.00    0.00    2501         update_avg [15]
+                0.00    0.00    4224/4224        measure_cycle [2]
+[14]     0.0    0.00    0.00    4224         update_avg [14]
 -----------------------------------------------
-                0.00    0.00       4/4           measure_cycle [2]
-[16]     0.0    0.00    0.00       4         average [16]
+                0.00    0.00     258/258         measure_cycle [2]
+[15]     0.0    0.00    0.00     258         average [15]
 -----------------------------------------------
-                0.00    0.00       3/3           measure_cycle [2]
-[17]     0.0    0.00    0.00       3         new_avg_tr [17]
+                0.00    0.00     130/130         measure_cycle [2]
+[16]     0.0    0.00    0.00     130         new_avg_tr [16]
 -----------------------------------------------
-                0.00    0.00       3/3           measure_cycle [2]
-[18]     0.0    0.00    0.00       3         stdev [18]
+                0.00    0.00     130/130         measure_cycle [2]
+[17]     0.0    0.00    0.00     130         stdev [17]
+-----------------------------------------------
+                0.00    0.00       1/1           measure_cycle [2]
+[18]     0.0    0.00    0.00       1         dump [18]
 -----------------------------------------------
 
  This table describes the call tree of the program, and was sorted by
@@ -213,18 +215,21 @@ index % time    self  children    called     name
  were internal to the cycle, and the calls entry for each member shows,
  for that member, how many times it was called from other members of
  the cycle.
-
+
+
 Copyright (C) 2012-2020 Free Software Foundation, Inc.
 
 Copying and distribution of this file, with or without modification,
 are permitted in any medium without royalty provided the copyright
 notice and this notice are preserved.
-
+
+
 Index by function name
 
-  [16] average                [11] init_t0                [15] update_avg
+  [15] average                [10] init_t0                [14] update_avg
    [4] deltaH                  [2] measure_cycle           [6] update_grid_black
-  [14] dump                    [8] measure_m               [5] update_grid_white
-  [10] flip                   [17] new_avg_tr              [3] update_spin
-   [7] grid_step              [18] stdev                  [12] variance
+  [18] dump                   [11] measure_m               [5] update_grid_white
+   [8] flip                   [16] new_avg_tr              [3] update_spin
+   [7] grid_step              [17] stdev                  [12] variance
   [13] init_random             [9] unitrand
+

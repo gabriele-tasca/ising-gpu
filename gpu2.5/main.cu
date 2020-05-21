@@ -395,10 +395,10 @@ void parall_measure_cycle(MULTISPIN startgrid[L*L], float exp4, float exp8, cura
     ////////////////
 
     // grid for displaying end-state (of last rep only)
-    // MULTISPIN endgrid[L*L];
-    // cudaMemcpy(endgrid, dev_grid, L*L*sizeof(MULTISPIN), cudaMemcpyDeviceToHost);
+    MULTISPIN endgrid[L*L];
+    cudaMemcpy(endgrid, dev_grid, L*L*sizeof(MULTISPIN), cudaMemcpyDeviceToHost);
 
-    // multidump_a_few(endgrid);
+    multidump_a_few(endgrid);
 
 
 }

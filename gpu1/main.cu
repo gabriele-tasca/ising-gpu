@@ -1,22 +1,23 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
-#include <string.h>
-#include <time.h>  
+#include <cuda_runtime_api.h>
+#include <curand.h>
+#include "curand_kernel.h"
 
-#define L 1000
-static int AREA = L*L;
-static int NTOT = L*L - (4*L -4);
+#define L 30
+const int AREA = L*L;
+const int NTOT = (L-2)*(L-2);
 
 // #define T 6.
 // #define T 0.1
 // #define T 2.26918531421
 
-#define T 2.24
+#define T 6
 
 #define J 1.
 
-#define SEED 1000
+#define SEED 1002
 
 struct measure_plan {
     int steps_repeat;
@@ -24,206 +25,298 @@ struct measure_plan {
     int t_measure_wait;
     int t_measure_interval; } 
 static PLAN = {
-    .steps_repeat = 1,
-    .t_max_sim = 2500,
+    .steps_repeat = 5,
+    .t_max_sim = 100,
     .t_measure_wait = 0,
     .t_measure_interval = 2  };
 
 
 // average tracker struct 
 struct avg_tr {
-    double sum;
-    double sum_squares;
+    float sum;
+    float sum_squares;
     int n;
 };
 struct avg_tr new_avg_tr(int locn) {
     struct avg_tr a = { .sum = 0, .sum_squares = 0, .n = locn};
     return a;
 }
-void update_avg(struct avg_tr * tr_p, double newval) {
+void update_avg(struct avg_tr * tr_p, float newval) {
     tr_p->sum +=  newval;
     tr_p->sum_squares += (newval*newval);
 }
-double average( struct avg_tr tr) {
-    return (tr.sum)/((double) tr.n) ;
+__device__ static inline void dev_update_avg(struct avg_tr * tr_p, float newval) {
+    tr_p->sum +=  newval;
+    tr_p->sum_squares += (newval*newval);
 }
-double stdev( struct avg_tr tr) {
-    return sqrt(  ( tr.sum_squares)/((double) tr.n)  -  pow(( (tr.sum)/((double) tr.n) ),2)  );
+float average( struct avg_tr tr) {
+    return (tr.sum)/((float) tr.n) ;
 }
-double variance( struct avg_tr tr) {
-    return (  ( tr.sum_squares)/((double) tr.n)  -  pow(( (tr.sum)/((double) tr.n) ),2)  );
+float stdev( struct avg_tr tr) {
+    return sqrt(  ( tr.sum_squares)/((float) tr.n)  -  pow(( (tr.sum)/((float) tr.n) ),2)  );
+}
+float variance( struct avg_tr tr) {
+    return (  ( tr.sum_squares)/((float) tr.n)  -  pow(( (tr.sum)/((float) tr.n) ),2)  );
 }
 
-
-double unitrand(){
-    return (double)rand() / (double)RAND_MAX;
+// RNG init kernel
+__global__ void initRNG(curandState * const rngStates, const unsigned int seed) {
+    // Determine thread ID
+    unsigned int tid = blockIdx.x * blockDim.x + threadIdx.x;
+    // Initialise the RNG
+    curand_init(seed, tid, 0, &rngStates[tid]);
 }
 
-void init_random(short int grid[L][L]) {
+float unitrand(){
+    return (float)rand() / (float)RAND_MAX;
+}
+__device__ static inline float dev_unitrand( curandState * const rngStates, int tid ){
+    curandState localState = rngStates[tid];
+    return curand_uniform(&localState);
+}
+
+void init_random(char grid[L*L]) {
     for(int x = 0; x<L; x++) {
         for(int y = 0; y<L; y++) {
-            grid[x][y] = rand() & 1;
+            grid[x+y*L] = rand() & 1;
         }
     }
 }
-void init_t0(short int grid[L][L]) {
+void init_t0(char grid[L*L]) {
     for(int x = 0; x<L; x++) {
         for(int y = 0; y<L; y++) {
-            grid[x][y] = 0;
+            grid[x+y*L] = 0;
         }
     }
 }
 
 
 // can segfault 
-short int grid_step(short int grid[L][L], int x, int y, int xstep, int ystep) {
-    return grid[x+xstep][y+ystep];
+__device__ char dev_grid_step(char grid[L*L], int x, int y, int xstep, int ystep) {
+    return grid[(x+xstep)  + (y+ystep)*L];
 }
 
-// segfault if applied to an edge spin, must be called only on the inner L-1 grid
+// segfault if applied to an edge spin, call only on the inner L-1 grid
 // *2 -4 remaps {0,1} into {-1,1}
-short int deltaH(short int grid[L][L], int x, int y) {
-    short int s0 = grid[x][y];
-    short int j1 = s0 ^ grid_step(grid, x, y, 1, 0);
-    short int j2 = s0 ^ grid_step(grid, x, y, -1, 0);
-    short int j3 = s0 ^ grid_step(grid, x, y, 0, 1);
-    short int j4 = s0 ^ grid_step(grid, x, y, 0, -1);
-    return -((j1 + j2 + j3 + j4) *2 -4)*2*J;
-}
+// __device__ char dev_deltaH(char grid[L*L], int x, int y) {
+//     char s0 = grid[x+y*L];
+//     char j1 = s0 ^ dev_grid_step(grid, x, y, 1, 0);
+//     char j2 = s0 ^ dev_grid_step(grid, x, y, -1, 0);
+//     char j3 = s0 ^ dev_grid_step(grid, x, y, 0, 1);
+//     char j4 = s0 ^ dev_grid_step(grid, x, y, 0, -1);
+//     return -((j1 + j2 + j3 + j4) *2 -4)*2*J;
+// }
 
-void flip(short int grid[L][L], int x, int y) {
-    grid[x][y] = !grid[x][y];
-}
 
-void update_spin(short int grid[L][L], int x, int y) {
-    double dh = (double) deltaH(grid, x, y);
+// void update_spin(char grid[L*L], int x, int y) {
+//     float dh = (float) deltaH(grid, x, y);
+//     // printf("dh: %f \n", dh);
+
+//     float p = exp(  -dh / T);
+//     float ur = unitrand(); //CHANGE
+//     // printf("p: %f, unitrand: %f \n", p, ur);
+//     if(ur < p ) {
+//         flip(grid, x, y);
+//     }
+// }
+__device__ void dev_update_spin(char grid[L*L], int x, int y , curandState * const rngStates, int tid ) {
+    char s0 = grid[x+y*L];
+    char j1 = s0 ^ dev_grid_step(grid, x, y, 1, 0);
+    char j2 = s0 ^ dev_grid_step(grid, x, y, -1, 0);
+    char j3 = s0 ^ dev_grid_step(grid, x, y, 0, 1);
+    char j4 = s0 ^ dev_grid_step(grid, x, y, 0, -1);
+    float dh = (float) ( -((j1 + j2 + j3 + j4) *2 -4)*2*J );
     // printf("dh: %f \n", dh);
 
-    double p = exp(  -dh / T);
-    double ur = unitrand(); //CHANGE
+    float p = exp(  -dh / T);
+    float ur = dev_unitrand(rngStates, tid); 
     // printf("p: %f, unitrand: %f \n", p, ur);
     if(ur < p ) {
-        flip(grid, x, y);
+        grid[x+y*L] = !grid[x+y*L];
     } 
 }
 
-void update_grid_white(short int grid[L][L]) {
-    for(int x = 1; x<L-1; x+=1) {
-        for(int y = (1 + x%2) ; y<L-1; y+=2) {
-            update_spin(grid, x, y);
-        }
+// void update_grid_white(char grid[L*L]) {
+//     for(int x = 1; x<L-1; x+=1) {
+//         for(int y = (1 + x%2) ; y<L-1; y+=2) {
+//             update_spin(grid, x, y);
+//         }
+//     }
+// }
+// void update_grid_black(char grid[L*L]) {
+//     for(int x = 1; x<L-1; x+=1) {
+//         for(int y = (1 + (x+1)%2) ; y<L-1; y+=2) {
+//             update_spin(grid, x, y);
+//         }
+//     }
+// }
+
+// for now with nthreads = NTOT
+__device__ void dev_update_grid(char grid[L*L], curandState * const rngStates ) {
+    // assign loc_x and loc_y so that only the inner square is covered
+    int loc_y = (  threadIdx.x / (L-2) ) +1;
+    int loc_x = (  threadIdx.x % (L-2) ) +1;
+
+    int tid = threadIdx.x;    // change
+
+    // white
+    if( (loc_x + loc_y%2)%2 == 0 ) {
+        dev_update_spin( grid, loc_x, loc_y, rngStates, tid );
     }
-}
-void update_grid_black(short int grid[L][L]) {
-    for(int x = 1; x<L-1; x+=1) {
-        for(int y = (1 + (x+1)%2) ; y<L-1; y+=2) {
-            update_spin(grid, x, y);
-        }
+    __syncthreads();
+    // black
+    if( (loc_x + loc_y%2)%2 == 1 ) {
+        dev_update_spin( grid, loc_x, loc_y, rngStates, tid );
     }
+    __syncthreads();
 }
 
-void dump(short int grid[L][L]) {
+void dump(char grid[L*L]) {
     for(int x = 0; x<L; x++) {
         for(int y = 0; y<L; y++) {
-            // if(grid[x][y] == 0) printf("•");
+            // if(grid[x+y*L] == 0) printf("•");
             // else printf("◘");
-            if(grid[x][y] == 0) printf(" ");
+            if(grid[x+y*L] == 0) printf(" ");
             else printf("█");
-            // printf("%i", grid[x][y]);
+            // printf("%i", grid[x+y*L]);
         }
         printf("\n");
     }
     printf("\n");
 }
 
-double measure_m(short int grid[L][L]) {
+float measure_m(char grid[L*L]) {
     int m = 0;
     for(int x = 1; x<L-1; x++) {
         for(int y = 1; y<L-1; y++) {
-            m += (grid[x][y]*2. -1.);
-            // printf("x %i m %f \n", x, grid[x][y] );
+            m += (grid[x+y*L]*2. -1.);
+            // printf("x %i m %f \n", x, grid[x+y*L] );
         }
     }
-    return (((double) m ) / (double) NTOT) ;
+    return (((float) m ) / (float) NTOT) ;
+}
+__device__ void dev_update_magnetization_tracker(char dev_grid[L*L], struct avg_tr * dev_tr_p, float * dev_partial_res ) {
+    int y = (  threadIdx.x / (L-2) ) +1;
+    int x = (  threadIdx.x % (L-2) ) +1;
+        float spin = (float) dev_grid[x+y*L]; 
+        atomicAdd(dev_partial_res, (spin*2.)-1.  );
+        __syncthreads();
+        
+        if (threadIdx.x == 0) {
+            *dev_partial_res = *dev_partial_res / (float) NTOT;
+            dev_update_avg( dev_tr_p, *dev_partial_res);
+            *dev_partial_res = 0;
+        }
+        __syncthreads();
+    
 }
 
-void measure_cycle(short int startgrid[L][L], struct measure_plan pl) {
+__global__ void dev_measure_cycle_kernel(struct measure_plan pl, char * dev_grid, curandState * const rngStates, avg_tr * dev_single_run_avg, float * dev_partial_res  ) {
+    // INNER SIM LOOPS
+
+    int ksim=0;
+    for( ; ksim<pl.t_measure_wait; ksim++) {
+        dev_update_grid(dev_grid, rngStates);
+    }
+    // end thermalization
+
+    for( ; ksim<pl.t_max_sim; ksim++) {
+        dev_update_grid(dev_grid, rngStates);
+
+        ////////////measures
+        if( ksim % pl.t_measure_interval == 0) {
+            dev_update_magnetization_tracker(dev_grid, dev_single_run_avg, dev_partial_res );
+        }
+
+    }
+    // END INNER SIM LOOPS        
+    ////////////measures
+    // update_avg(&avg_of_all_sims_tr, average(sim_avg_tr));
+}
+
+void parall_measure_cycle(char startgrid[L*L], struct measure_plan pl, char * dev_grid, curandState * const rngStates ) {
     FILE *resf = fopen("results.txt", "w");
-    short int grid[L][L];
     fprintf(resf, "# cpu1\n");
     fprintf(resf, "# parameters:\n# linear_size: %i\n", L);
     fprintf(resf, "# temperature: %f\n#temp_start: %f\n# coupling: %f\n# repetitions: %i\n", T, 0., J, pl.steps_repeat);
     fprintf(resf, "# simulation_t_max: %i\n# thermalization_time: %i\n# time_between_measurements: %i\n# base_random_seed: %i\n",  pl.t_max_sim, pl.t_measure_wait, pl.t_measure_interval, SEED);
     fprintf(resf, "# extra:\n# area: %i\n# active_spins_excluding_boundaries:%i\n", AREA, NTOT);
-  
 
-    fprintf(resf, "# columns: MC time -- magnetization\n");
 
     //OUTER REP LOOP
-    double n_measures_per_sim = (double) ((pl.t_max_sim - pl.t_measure_wait)/pl.t_measure_interval);
-    struct avg_tr overall_avg_tr = new_avg_tr(n_measures_per_sim*pl.steps_repeat);
-    struct avg_tr avg_of_all_sims_tr = new_avg_tr(pl.steps_repeat);
+    ////////////measures
+    float n_measures_per_sim = (float) ((pl.t_max_sim - pl.t_measure_wait)/pl.t_measure_interval);
+    
+    struct avg_tr outer_avg_tr = new_avg_tr(pl.steps_repeat);
+    
 
-    float avg_of_sims = 0;
+    // extra space needed by dev_update_magnetization_tracker
+    float * dev_partial_res;
+    cudaMalloc(&dev_partial_res, sizeof(float));
+
+
     for( int krep=0; krep< pl.steps_repeat; krep++) {
         
-        srand(SEED + krep);
+        struct avg_tr single_run_avg = new_avg_tr(n_measures_per_sim);
+        struct avg_tr * dev_single_run_avg;
+        cudaMalloc(&dev_single_run_avg, sizeof(struct avg_tr));
+        cudaMemcpy(dev_single_run_avg, &single_run_avg, sizeof(struct avg_tr), cudaMemcpyHostToDevice);
 
-        memcpy(grid, startgrid, L*L*sizeof(short int) );
-    
+        initRNG<<<1, NTOT>>>(rngStates, SEED+krep);
+        // initialize starting grid on the device for this sim
+        cudaMemcpy(dev_grid, startgrid, L*L*sizeof(char), cudaMemcpyHostToDevice);
+  
+        dev_measure_cycle_kernel<<<1, NTOT>>>(pl, dev_grid, rngStates, dev_single_run_avg, dev_partial_res );
 
-        // INNER SIM LOOPS
-        fprintf(resf, "# simulation %i\n", krep+1);
-        fprintf(resf, "#    waiting thermalization for the first %i sim steps\n", pl.t_measure_wait);
-        int ksim=0;
-        for( ; ksim<pl.t_measure_wait; ksim++) {
-            update_grid_black(grid);
-            update_grid_white(grid);
-            if( ksim % pl.t_measure_interval == 0) {
-                fprintf(resf, "%i %f\n", ksim, measure_m(grid));
-            }
-
-        }
-        fprintf(resf, "#    end thermalization\n");
-
-        struct avg_tr sim_avg_tr = new_avg_tr(n_measures_per_sim);
-        for( ; ksim<pl.t_max_sim; ksim++) {
-            update_grid_black(grid);
-            update_grid_white(grid);
-            
-            if( ksim % pl.t_measure_interval == 0) {
-                double locres = measure_m(grid);
-                fprintf(resf, "%i %f\n", ksim, locres);
-                update_avg(&overall_avg_tr, locres);
-                update_avg(&sim_avg_tr, locres);
-            }
-
-        }
-        // END INNER SIM LOOPS        
-        fprintf(resf, "# end simulation %i\n", krep+1);
-        fprintf(resf, "# average for simulation %i: %f +- %f \n", krep+1, average(sim_avg_tr), stdev(sim_avg_tr));
-        update_avg(&avg_of_all_sims_tr, average(sim_avg_tr));
+        // bring back results to CPU
+        cudaMemcpy(&single_run_avg, dev_single_run_avg, sizeof(struct avg_tr), cudaMemcpyDeviceToHost);
+        float lres = average(single_run_avg);
+        float lstdev = stdev(single_run_avg);
+        fprintf(resf, "# average of simulation %i\n: %f +- %f\n", krep+1, lres, lstdev);
+        update_avg(&outer_avg_tr, lres);
     }
-    // END OUTER REP LOOP
 
-    fprintf(resf, "# average of all simulations: %f +- %f\n", average(avg_of_all_sims_tr), stdev(avg_of_all_sims_tr));
-    fprintf(resf, "# overall average: %f +- %f\n", average(overall_avg_tr), stdev(overall_avg_tr));
+    // END OUTER REP LOOP
     
-    dump(grid);
+    ////////////measures
+    fprintf(resf, "# average of all simulations: %f +- %f\n", average(outer_avg_tr), stdev(outer_avg_tr));
+    
+    char endgrid[L*L];
+    cudaMemcpy(endgrid, dev_grid, L*L*sizeof(char), cudaMemcpyDeviceToHost);
+    dump(endgrid);
+
+
 }
 
 
 
 int main() {
     srand(SEED);
-    short int startgrid[L][L];
+
+    // curand init
+    // Allocate memory for RNG states
+    curandState *d_rngStates = 0;
+    // cudaMalloc((void **)&d_rngStates, grid.x * block.x * sizeof(curandState));
+    cudaMalloc((void **)&d_rngStates, NTOT*sizeof(curandState));
+    // Initialise RNG
+    initRNG<<<1, NTOT>>>(d_rngStates, SEED);
+
+    // device grid
+    char * dev_grid;
+    cudaMalloc(&dev_grid, L*L*sizeof(char));
+
+
+    char startgrid[L*L];
     init_t0(startgrid);
 
-    // dump(startgrid);
+    dump(startgrid);
 
 
 
-    measure_cycle(startgrid, PLAN);
+    parall_measure_cycle(startgrid, PLAN, dev_grid, d_rngStates);
+
+    cudaFree(&d_rngStates);
+    cudaFree(dev_grid);
 
 }
 

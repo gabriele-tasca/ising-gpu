@@ -1,17 +1,14 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
-#include <string.h>
-#include <time.h>  
 
-#define L 1000
+#define L 500
 static int AREA = L*L;
 static int NTOT = L*L - (4*L -4);
 
 // #define T 6.
 // #define T 0.1
 // #define T 2.26918531421
-
 #define T 2.24
 
 #define J 1.
@@ -24,10 +21,10 @@ struct measure_plan {
     int t_measure_wait;
     int t_measure_interval; } 
 static PLAN = {
-    .steps_repeat = 1,
-    .t_max_sim = 2500,
-    .t_measure_wait = 0,
-    .t_measure_interval = 2  };
+    .steps_repeat = 50,
+    .t_max_sim = 600,
+    .t_measure_wait = 100,
+    .t_measure_interval = 10  };
 
 
 // average tracker struct 

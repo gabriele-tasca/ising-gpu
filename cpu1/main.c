@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
+#include <string.h>
 
 #define L 500
 static int AREA = L*L;
@@ -56,47 +57,50 @@ double unitrand(){
     return (double)rand() / (double)RAND_MAX;
 }
 
-void init_random(short int grid[L][L]) {
+void init_random(char grid[L][L]) {
     for(int x = 0; x<L; x++) {
         for(int y = 0; y<L; y++) {
             grid[x][y] = rand() & 1;
         }
     }
 }
-void init_t0(short int grid[L][L]) {
+void init_t0(char grid[L][L]) {
     for(int x = 0; x<L; x++) {
+        double coinflip = unitrand();
+        char value = 0;
+        if(coinflip < 0.5) value = 1; 
         for(int y = 0; y<L; y++) {
-            grid[x][y] = 0;
+            grid[x][y] = value;
         }
     }
 }
 
 
 // can segfault 
-short int grid_step(short int grid[L][L], int x, int y, int xstep, int ystep) {
+char grid_step(char grid[L][L], int x, int y, int xstep, int ystep) {
     return grid[x+xstep][y+ystep];
 }
 
 // segfault if applied to an edge spin, must be called only on the inner L-1 grid
 // *2 -4 remaps {0,1} into {-1,1}
-short int deltaH(short int grid[L][L], int x, int y) {
-    short int s0 = grid[x][y];
-    short int j1 = s0 ^ grid_step(grid, x, y, 1, 0);
-    short int j2 = s0 ^ grid_step(grid, x, y, -1, 0);
-    short int j3 = s0 ^ grid_step(grid, x, y, 0, 1);
-    short int j4 = s0 ^ grid_step(grid, x, y, 0, -1);
+char deltaH(char grid[L][L], int x, int y) {
+    char s0 = grid[x][y];
+    char j1 = s0 ^ grid_step(grid, x, y, 1, 0);
+    char j2 = s0 ^ grid_step(grid, x, y, -1, 0);
+    char j3 = s0 ^ grid_step(grid, x, y, 0, 1);
+    char j4 = s0 ^ grid_step(grid, x, y, 0, -1);
     return -((j1 + j2 + j3 + j4) *2 -4)*2*J;
 }
 
-void flip(short int grid[L][L], int x, int y) {
+void flip(char grid[L][L], int x, int y) {
     grid[x][y] = !grid[x][y];
 }
 
-void update_spin(short int grid[L][L], int x, int y) {
+void update_spin(char grid[L][L], int x, int y, double temperature) {
     double dh = (double) deltaH(grid, x, y);
     // printf("dh: %f \n", dh);
 
-    double p = exp(  -dh / T);
+    double p = exp(  -dh / temperature);
     double ur = unitrand(); //CHANGE
     // printf("p: %f, unitrand: %f \n", p, ur);
     if(ur < p ) {
@@ -104,22 +108,22 @@ void update_spin(short int grid[L][L], int x, int y) {
     } 
 }
 
-void update_grid_white(short int grid[L][L]) {
+void update_grid_white(char grid[L][L], double temperature) {
     for(int x = 1; x<L-1; x+=1) {
         for(int y = (1 + x%2) ; y<L-1; y+=2) {
-            update_spin(grid, x, y);
+            update_spin(grid, x, y, temperature);
         }
     }
 }
-void update_grid_black(short int grid[L][L]) {
+void update_grid_black(char grid[L][L], double temperature) {
     for(int x = 1; x<L-1; x+=1) {
         for(int y = (1 + (x+1)%2) ; y<L-1; y+=2) {
-            update_spin(grid, x, y);
+            update_spin(grid, x, y, temperature);
         }
     }
 }
 
-void dump(short int grid[L][L]) {
+void dump(char grid[L][L]) {
     for(int x = 0; x<L; x++) {
         for(int y = 0; y<L; y++) {
             // if(grid[x][y] == 0) printf("•");
@@ -133,7 +137,7 @@ void dump(short int grid[L][L]) {
     printf("\n");
 }
 
-double measure_m(short int grid[L][L]) {
+double measure_m(char grid[L][L]) {
     int m = 0;
     for(int x = 1; x<L-1; x++) {
         for(int y = 1; y<L-1; y++) {
@@ -144,12 +148,12 @@ double measure_m(short int grid[L][L]) {
     return (((double) m ) / (double) NTOT) ;
 }
 
-void measure_cycle(short int startgrid[L][L], struct measure_plan pl) {
+void measure_cycle(char startgrid[L][L], struct measure_plan pl, double temperature) {
     FILE *resf = fopen("results.txt", "w");
-    short int grid[L][L];
+    char grid[L][L];
     fprintf(resf, "# cpu1\n");
     fprintf(resf, "# parameters:\n# linear_size: %i\n", L);
-    fprintf(resf, "# temperature: %f\n#temp_start: %f\n# coupling: %f\n# repetitions: %i\n", T, 0., J, pl.steps_repeat);
+    fprintf(resf, "# temperature: %f\n#temp_start: %f\n# coupling: %f\n# repetitions: %i\n", temperature, 0., J, pl.steps_repeat);
     fprintf(resf, "# simulation_t_max: %i\n# thermalization_time: %i\n# time_between_measurements: %i\n# base_random_seed: %i\n",  pl.t_max_sim, pl.t_measure_wait, pl.t_measure_interval, SEED);
     fprintf(resf, "# extra:\n# area: %i\n# active_spins_excluding_boundaries:%i\n", AREA, NTOT);
   
@@ -166,7 +170,7 @@ void measure_cycle(short int startgrid[L][L], struct measure_plan pl) {
         
         srand(SEED + krep);
 
-        memcpy(grid, startgrid, L*L*sizeof(short int) );
+        memcpy(grid, startgrid, L*L*sizeof(char) );
     
 
         // INNER SIM LOOPS
@@ -174,8 +178,8 @@ void measure_cycle(short int startgrid[L][L], struct measure_plan pl) {
         fprintf(resf, "#    waiting thermalization for the first %i sim steps\n", pl.t_measure_wait);
         int ksim=0;
         for( ; ksim<pl.t_measure_wait; ksim++) {
-            update_grid_black(grid);
-            update_grid_white(grid);
+            update_grid_black(grid, temperature);
+            update_grid_white(grid, temperature);
             if( ksim % pl.t_measure_interval == 0) {
                 fprintf(resf, "%i %f\n", ksim, measure_m(grid));
             }
@@ -185,8 +189,8 @@ void measure_cycle(short int startgrid[L][L], struct measure_plan pl) {
 
         struct avg_tr sim_avg_tr = new_avg_tr(n_measures_per_sim);
         for( ; ksim<pl.t_max_sim; ksim++) {
-            update_grid_black(grid);
-            update_grid_white(grid);
+            update_grid_black(grid, temperature);
+            update_grid_white(grid, temperature);
             
             if( ksim % pl.t_measure_interval == 0) {
                 double locres = measure_m(grid);
@@ -213,14 +217,14 @@ void measure_cycle(short int startgrid[L][L], struct measure_plan pl) {
 
 int main() {
     srand(SEED);
-    short int startgrid[L][L];
+    char startgrid[L][L];
     init_t0(startgrid);
 
     // dump(startgrid);
 
 
 
-    measure_cycle(startgrid, PLAN);
+    measure_cycle(startgrid, PLAN, T);
 
 }
 

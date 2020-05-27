@@ -6,7 +6,7 @@
 #include "curand_kernel.h"
 
 // for now, L should be a power of 32 + 2 (I think)
-#define L 514
+#define L 20
 const int AREA = L*L;
 const int NTOT = (L-2)*(L-2);
 
@@ -18,7 +18,7 @@ const dim3 THREADS(32, 32);
 // #define T 2.26918531421
 #define T_CYCLE_START 2.0
 #define T_CYCLE_END 2.5
-#define T_CYCLE_STEP 0.04
+#define T_CYCLE_STEP 0.05
 
 #define J 1.
 #define SEED 1000
@@ -32,10 +32,10 @@ struct measure_plan {
     int t_measure_wait;
     int t_measure_interval; } 
 static PLAN = {
-    .steps_repeat = 20,
-    .t_max_sim = 250,
+    .steps_repeat = 5,
+    .t_max_sim = 200,
     .t_measure_wait = 50,
-    .t_measure_interval = 10  };
+    .t_measure_interval = 5  };
 
 
 // average tracker struct 
@@ -77,11 +77,9 @@ __global__ void initRNG(curandState * const rngStates, const unsigned int seed) 
 float unitrand(){
     return (float)rand() / (float)RAND_MAX;
 }
-__device__ static inline float dev_unitrand( curandState * const rngStates, unsigned int tid ){
+__device__ static inline float dev_unitrand( curandState * const rngStates, int tid ){
     curandState localState = rngStates[tid];
-    float val = curand_uniform(&localState);
-    rngStates[tid] = localState;
-    return val;
+    return curand_uniform(&localState);
 }
 
 void init_random(char grid[L*L]) {
@@ -99,32 +97,6 @@ void init_t0(char grid[L*L]) {
     }
 }
 
-void dump(char grid[L*L]) {
-    for(int x = 0; x<L; x++) {
-        for(int y = 0; y<L; y++) {
-            // if(grid[x+y*L] == 0) printf("•");
-            // else printf("◘");
-            if(grid[x+y*L] == 0) printf(" ");
-            else printf("█");
-            // printf("%i", grid[x+y*L]);
-        }
-        printf("\n");
-    }
-    printf("\n");
-}
-__device__ void dev_dump(char grid[L*L]) {
-    for(int x = 0; x<L; x++) {
-        for(int y = 0; y<L; y++) {
-            // if(grid[x+y*L] == 0) printf("•");
-            // else printf("◘");
-            if(grid[x+y*L] == 0) printf(" ");
-            else printf("█");
-            // printf("%i", grid[x+y*L]);
-        }
-        printf("\n");
-    }
-    printf("\n");
-}
 
 // can segfault 
 __device__ char dev_grid_step(char grid[L*L], int x, int y, int xstep, int ystep) {
@@ -132,22 +104,20 @@ __device__ char dev_grid_step(char grid[L*L], int x, int y, int xstep, int ystep
 }
 
 // segfault if applied to an edge spin, call only on the inner L-1 grid
-__device__ void dev_update_spin(char dev_grid[L*L], int x, int y , curandState * const rngStates, unsigned int tid, double temperature ) {
-    char s0 = dev_grid[x+y*L];
-    char j1 = s0 ^ dev_grid_step(dev_grid, x, y, 1, 0);
-    char j2 = s0 ^ dev_grid_step(dev_grid, x, y, -1, 0);
-    char j3 = s0 ^ dev_grid_step(dev_grid, x, y, 0, 1);
-    char j4 = s0 ^ dev_grid_step(dev_grid, x, y, 0, -1);
+__device__ void dev_update_spin(char grid[L*L], int x, int y , curandState * const rngStates, int tid, double temperature ) {
+    char s0 = grid[x+y*L];
+    char j1 = s0 ^ dev_grid_step(grid, x, y, 1, 0);
+    char j2 = s0 ^ dev_grid_step(grid, x, y, -1, 0);
+    char j3 = s0 ^ dev_grid_step(grid, x, y, 0, 1);
+    char j4 = s0 ^ dev_grid_step(grid, x, y, 0, -1);
     float dh = (float) ( -((j1 + j2 + j3 + j4) *2 -4)*2*J );
+    // printf("dh: %f \n", dh);
 
     float p = exp(  -dh / temperature);
-    float ur = dev_unitrand(rngStates, tid);
-
-    // if (threadIdx.x == 0)  printf("p: %f, unitrand: %f \n", p, ur);
-    // if (threadIdx.x == 1)  printf("p: %f, unitrand: %f \n", p, ur);
-    // if (threadIdx.x == 2)  printf("p: %f, unitrand: %f \n", p, ur);
+    float ur = dev_unitrand(rngStates, tid); 
+    // printf("p: %f, unitrand: %f \n", p, ur);
     if(ur < p ) {
-        dev_grid[x+y*L] = !dev_grid[x+y*L];
+        grid[x+y*L] = !grid[x+y*L];
     } 
 }
 
@@ -177,6 +147,19 @@ __device__ void dev_update_grid(char grid[L*L], curandState * const rngStates, d
     __syncthreads();
 }
 
+void dump(char grid[L*L]) {
+    for(int x = 0; x<L; x++) {
+        for(int y = 0; y<L; y++) {
+            // if(grid[x+y*L] == 0) printf("•");
+            // else printf("◘");
+            if(grid[x+y*L] == 0) printf(" ");
+            else printf("█");
+            // printf("%i", grid[x+y*L]);
+        }
+        printf("\n");
+    }
+    printf("\n");
+}
 
 float measure_m(char grid[L*L]) {
     int m = 0;
@@ -191,16 +174,16 @@ float measure_m(char grid[L*L]) {
 __device__ void dev_update_magnetization_tracker(char dev_grid[L*L], struct avg_tr * dev_tr_p, float * dev_partial_res ) {
     int y = (  threadIdx.x / (L-2) ) +1;
     int x = (  threadIdx.x % (L-2) ) +1;
-    float spin = (float) dev_grid[x+y*L]; 
-    atomicAdd(dev_partial_res, (spin*2.)-1.  );
-    __syncthreads();
-    
-    if (threadIdx.x == 0) {
-        *dev_partial_res = *dev_partial_res / (float) NTOT;
-        dev_update_avg( dev_tr_p, *dev_partial_res);
-        *dev_partial_res = 0;
-    }
-    __syncthreads();
+        float spin = (float) dev_grid[x+y*L]; 
+        atomicAdd(dev_partial_res, (spin*2.)-1.  );
+        __syncthreads();
+        
+        if (threadIdx.x == 0) {
+            *dev_partial_res = *dev_partial_res / (float) NTOT;
+            dev_update_avg( dev_tr_p, *dev_partial_res);
+            *dev_partial_res = 0;
+        }
+        __syncthreads();
     
 }
 
@@ -313,10 +296,10 @@ int main() {
     if (HISTORY) dump(startgrid);
 
 
-    for( double kt=T_CYCLE_START; kt<T_CYCLE_END; kt+=T_CYCLE_STEP ) {
-        parall_measure_cycle(startgrid, PLAN, dev_grid, d_rngStates, resf, kt);
-    }
-    // parall_measure_cycle(startgrid, PLAN, dev_grid, d_rngStates, resf, 2.26);
+    // for( double kt=T_CYCLE_START; kt<T_CYCLE_END; kt+=T_CYCLE_STEP ) {
+        // parall_measure_cycle(startgrid, PLAN, dev_grid, d_rngStates, resf, kt);
+    // }
+    parall_measure_cycle(startgrid, PLAN, dev_grid, d_rngStates, resf, 10.);
         
 
     cudaFree(&d_rngStates);

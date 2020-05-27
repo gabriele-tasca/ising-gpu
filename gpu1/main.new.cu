@@ -6,7 +6,7 @@
 #include "curand_kernel.h"
 
 // for now, L should be a power of 32 + 2 (I think)
-#define L 514
+#define L 20
 const int AREA = L*L;
 const int NTOT = (L-2)*(L-2);
 
@@ -18,7 +18,7 @@ const dim3 THREADS(32, 32);
 // #define T 2.26918531421
 #define T_CYCLE_START 2.0
 #define T_CYCLE_END 2.5
-#define T_CYCLE_STEP 0.04
+#define T_CYCLE_STEP 0.05
 
 #define J 1.
 #define SEED 1000
@@ -32,10 +32,10 @@ struct measure_plan {
     int t_measure_wait;
     int t_measure_interval; } 
 static PLAN = {
-    .steps_repeat = 20,
-    .t_max_sim = 250,
+    .steps_repeat = 5,
+    .t_max_sim = 200,
     .t_measure_wait = 50,
-    .t_measure_interval = 10  };
+    .t_measure_interval = 5  };
 
 
 // average tracker struct 
@@ -79,9 +79,7 @@ float unitrand(){
 }
 __device__ static inline float dev_unitrand( curandState * const rngStates, unsigned int tid ){
     curandState localState = rngStates[tid];
-    float val = curand_uniform(&localState);
-    rngStates[tid] = localState;
-    return val;
+    return curand_uniform(&localState);
 }
 
 void init_random(char grid[L*L]) {
@@ -142,6 +140,7 @@ __device__ void dev_update_spin(char dev_grid[L*L], int x, int y , curandState *
 
     float p = exp(  -dh / temperature);
     float ur = dev_unitrand(rngStates, tid);
+    rngStates[tid] = localState;
 
     // if (threadIdx.x == 0)  printf("p: %f, unitrand: %f \n", p, ur);
     // if (threadIdx.x == 1)  printf("p: %f, unitrand: %f \n", p, ur);
@@ -313,10 +312,10 @@ int main() {
     if (HISTORY) dump(startgrid);
 
 
-    for( double kt=T_CYCLE_START; kt<T_CYCLE_END; kt+=T_CYCLE_STEP ) {
-        parall_measure_cycle(startgrid, PLAN, dev_grid, d_rngStates, resf, kt);
-    }
-    // parall_measure_cycle(startgrid, PLAN, dev_grid, d_rngStates, resf, 2.26);
+    // for( double kt=T_CYCLE_START; kt<T_CYCLE_END; kt+=T_CYCLE_STEP ) {
+        // parall_measure_cycle(startgrid, PLAN, dev_grid, d_rngStates, resf, kt);
+    // }
+    parall_measure_cycle(startgrid, PLAN, dev_grid, d_rngStates, resf, 10.);
         
 
     cudaFree(&d_rngStates);

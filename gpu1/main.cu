@@ -4,27 +4,25 @@
 #include <cuda_runtime_api.h>
 #include <curand.h>
 #include "curand_kernel.h"
+#include <assert.h>
 
-// for now, L should be a power of 32 + 2 (I think)
-#define L 514
+// L should be a multiple of 32 + 2
+#define L 258
+
 const int AREA = L*L;
 const int NTOT = (L-2)*(L-2);
-
-const dim3 BLOCKS(( L-2)/32, ( L-2)/32);
-const dim3 THREADS(32, 32);
 
 // #define T 6.
 // #define T 0.1
 // #define T 2.26918531421
-#define T_CYCLE_START 2.0
-#define T_CYCLE_END 2.5
+#define T_CYCLE_START 1.5
+#define T_CYCLE_END 3
 #define T_CYCLE_STEP 0.04
+
+int n_temps = ( T_CYCLE_END - T_CYCLE_START )/ (T_CYCLE_STEP);
 
 #define J 1.
 #define SEED 1000
-
-// print history true/false
-#define HISTORY 1
 
 struct measure_plan {
     int steps_repeat;
@@ -32,11 +30,19 @@ struct measure_plan {
     int t_measure_wait;
     int t_measure_interval; } 
 static PLAN = {
-    .steps_repeat = 20,
+    .steps_repeat = 100,
     .t_max_sim = 250,
     .t_measure_wait = 50,
     .t_measure_interval = 10  };
 
+
+// print history true/false
+#define HISTORY 1
+
+const int THR_NUMBER = 32;
+const int BLOCK_NUMBER  = ( L-2)/32;
+const dim3 BLOCKS( BLOCK_NUMBER, BLOCK_NUMBER );
+const dim3 THREADS( THR_NUMBER, THR_NUMBER );
 
 // average tracker struct 
 struct avg_tr {
@@ -69,12 +75,13 @@ float variance( struct avg_tr tr) {
 // RNG init kernel
 __global__ void initRNG(curandState * const rngStates, const unsigned int seed) {
     // Determine thread ID
-    unsigned int tid = blockIdx.x * blockDim.x + threadIdx.x;
+    int blockId = blockIdx.x+ blockIdx.y * gridDim.x;
+    int tid = blockId * (blockDim.x * blockDim.y)+ (threadIdx.y * blockDim.x)+ threadIdx.x;
     // Initialise the RNG
     curand_init(seed, tid, 0, &rngStates[tid]);
 }
 
-float unitrand(){
+static inline float unitrand(){
     return (float)rand() / (float)RAND_MAX;
 }
 __device__ static inline float dev_unitrand( curandState * const rngStates, unsigned int tid ){
@@ -151,19 +158,31 @@ __device__ void dev_update_spin(char dev_grid[L*L], int x, int y , curandState *
     } 
 }
 
+struct coords {
+    int x;
+    int y;
+};
+__device__ coords dev_get_local_coords() {
+    struct coords loc_coords;
+        // assign loc_x and loc_y so that only the inner square is covered
+    // int loc_y = (  threadIdx.x / (L-2) ) +1;
+    // int loc_x = (  threadIdx.x % (L-2) ) +1;
+ 
+    loc_coords.x = threadIdx.x + blockIdx.x*blockDim.x  + 1 ;
+    loc_coords.y = threadIdx.y + blockIdx.y*blockDim.y  + 1 ;
+
+    return loc_coords;
+}
+
 // for now with nthreads = NTOT
 __device__ void dev_update_grid(char grid[L*L], curandState * const rngStates, double temperature ) {
     
-    // int loc_x = threadIdx.x+blockIdx.x*blockDim.x  + 1 ;
-    // int loc_y = threadIdx.y+blockIdx.y*blockDim.y  + 1 ;
+    struct coords loc_coords = dev_get_local_coords();
+    int loc_x = loc_coords.x;
+    int loc_y = loc_coords.y;
     
-    // int tid = loc_x + loc_y* blockDim.x *gridDim.x;
+    int tid = loc_x + loc_y* (L-2);
 
-    // assign loc_x and loc_y so that only the inner square is covered
-    int loc_y = (  threadIdx.x / (L-2) ) +1;
-    int loc_x = (  threadIdx.x % (L-2) ) +1;
-
-    int tid = threadIdx.x;    // change
 
     // white
     if( (loc_x + loc_y%2)%2 == 0 ) {
@@ -189,9 +208,11 @@ float measure_m(char grid[L*L]) {
     return (((float) m ) / (float) NTOT) ;
 }
 __device__ void dev_update_magnetization_tracker(char dev_grid[L*L], struct avg_tr * dev_tr_p, float * dev_partial_res ) {
-    int y = (  threadIdx.x / (L-2) ) +1;
-    int x = (  threadIdx.x % (L-2) ) +1;
-    float spin = (float) dev_grid[x+y*L]; 
+    struct coords loc_coords = dev_get_local_coords();
+    int loc_x = loc_coords.x;
+    int loc_y = loc_coords.y;
+
+    float spin = (float) dev_grid[loc_x+loc_y*L]; 
     atomicAdd(dev_partial_res, (spin*2.)-1.  );
     __syncthreads();
     
@@ -200,7 +221,7 @@ __device__ void dev_update_magnetization_tracker(char dev_grid[L*L], struct avg_
         dev_update_avg( dev_tr_p, *dev_partial_res);
         *dev_partial_res = 0;
     }
-    __syncthreads();
+    // __syncthreads();
     
 }
 
@@ -250,22 +271,27 @@ void parall_measure_cycle(char startgrid[L*L], struct measure_plan pl, char * de
         cudaMalloc(&dev_single_run_avg, sizeof(struct avg_tr));
         cudaMemcpy(dev_single_run_avg, &single_run_avg, sizeof(struct avg_tr), cudaMemcpyHostToDevice);
 
-        initRNG<<<1, NTOT>>>(rngStates, SEED+krep);
+        initRNG<<<BLOCKS, THREADS>>>(rngStates, SEED+krep);
+        printf("seeding with %i\n", SEED+krep);
         // initialize starting grid on the device for this sim
         cudaMemcpy(dev_grid, startgrid, L*L*sizeof(char), cudaMemcpyHostToDevice);
   
-        dev_measure_cycle_kernel<<<1, NTOT>>>(pl, dev_grid, rngStates, dev_single_run_avg, dev_partial_res, temperature );
+        dev_measure_cycle_kernel<<<BLOCKS, THREADS>>>(pl, dev_grid, rngStates, dev_single_run_avg, dev_partial_res, temperature );
 
         // bring back results to CPU
         cudaMemcpy(&single_run_avg, dev_single_run_avg, sizeof(struct avg_tr), cudaMemcpyDeviceToHost);
         float lres = average(single_run_avg);
         float lstdev = stdev(single_run_avg);
+        if (HISTORY) printf(" temperature: %f\n", temperature);
         if (HISTORY) printf("# average of simulation %i:\n %f +- %f\n", krep+1, lres, lstdev);
+
         update_avg(&outer_avg_tr, lres);
         
         char endgrid[L*L];
         cudaMemcpy(endgrid, dev_grid, L*L*sizeof(char), cudaMemcpyDeviceToHost);
         if (HISTORY) dump(endgrid);
+        
+        cudaFree(dev_single_run_avg);
     
     }
 
@@ -276,14 +302,22 @@ void parall_measure_cycle(char startgrid[L*L], struct measure_plan pl, char * de
     fprintf(resf, "%f ", average(outer_avg_tr));
     fprintf(resf, "%f\n", stdev(outer_avg_tr));
     
-
-
+    cudaFree(dev_partial_res);
 
 }
 
 
 
 int main() {
+    // L should be a multiple of 32 + 2
+    assert( ((L-2)%32 )== 0 );
+
+    cudaEvent_t start, stop;
+    cudaEventCreate(&start);
+    cudaEventCreate(&stop);
+    cudaEventRecord(start);
+
+
     FILE *resf = fopen("results.txt", "w");
     fprintf(resf, "# gpu1\n");
     fprintf(resf, "# parameters:\n# linear_size: %i\n", L);
@@ -298,10 +332,10 @@ int main() {
     // curand init
     // Allocate memory for RNG states
     curandState *d_rngStates = 0;
-    // cudaMalloc((void **)&d_rngStates, grid.x * block.x * sizeof(curandState));
-    cudaMalloc((void **)&d_rngStates, NTOT*sizeof(curandState));
+
+    cudaMalloc((void **)&d_rngStates, THR_NUMBER*THR_NUMBER*BLOCK_NUMBER*BLOCK_NUMBER*sizeof(curandState));
     // Initialise RNG
-    initRNG<<<1, NTOT>>>(d_rngStates, SEED);
+    initRNG<<<BLOCKS, THREADS>>>(d_rngStates, SEED);
 
     // device grid
     char * dev_grid;
@@ -310,17 +344,37 @@ int main() {
     char startgrid[L*L];
     init_t0(startgrid); 
 
+    if (HISTORY) printf("starting grid:\n");
     if (HISTORY) dump(startgrid);
 
 
     for( double kt=T_CYCLE_START; kt<T_CYCLE_END; kt+=T_CYCLE_STEP ) {
         parall_measure_cycle(startgrid, PLAN, dev_grid, d_rngStates, resf, kt);
     }
-    // parall_measure_cycle(startgrid, PLAN, dev_grid, d_rngStates, resf, 2.26);
+
+    // only 1:
+    // parall_measure_cycle(startgrid, PLAN, dev_grid, d_rngStates, resf, 1.96);
         
 
-    cudaFree(&d_rngStates);
+    cudaFree(d_rngStates);
     cudaFree(dev_grid);
+
+
+    cudaEventRecord(stop);
+    cudaEventSynchronize(stop);
+    float total_time = 0;
+    cudaEventElapsedTime(&total_time, start, stop);
+
+    FILE *timef = fopen("time.txt", "w");
+    int total_flips = n_temps * PLAN.steps_repeat * PLAN.t_max_sim * NTOT;
+    fprintf(timef, "# total execution time (milliseconds):\n");
+    fprintf(timef, "%f\n", total_time);
+    fprintf(timef, "# total spin flips performed:\n");
+    fprintf(timef, "%f\n", total_flips);
+    fprintf(timef, "# average spin flips per millisecond:\n");
+    fprintf(timef, "%f\n", ((float) total_flips  )/( (float) total_time ) );
+
+    fclose(timef);
 
     fclose(resf);
 }

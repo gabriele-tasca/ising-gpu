@@ -3,19 +3,19 @@
 #include <math.h>
 #include <string.h>
 
-#define L 300
+#define L 258
 static int AREA = L*L;
 static int NTOT = L*L - (4*L -4);
 
 // #define T 6.
 // #define T 0.1
 // #define T 2.26918531421
-#define T_CYCLE_START 2.4
+#define T_CYCLE_START 1.5
 #define T_CYCLE_END 3
 #define T_CYCLE_STEP 0.04
 
-// #define NTEMPS 10
-// double temps[NTEMPS] = { 2.15, 2.2, 2.25, 2.3, 2.35 };
+int n_temps = ( T_CYCLE_END - T_CYCLE_START )/ (T_CYCLE_STEP);
+
 
 #define J 1.
 
@@ -30,7 +30,7 @@ struct measure_plan {
     int t_measure_wait;
     int t_measure_interval; } 
 static PLAN = {
-    .steps_repeat = 20,
+    .steps_repeat = 100,
     .t_max_sim = 250,
     .t_measure_wait = 50,
     .t_measure_interval = 10  };
@@ -216,6 +216,13 @@ void measure_cycle(char startgrid[L][L], struct measure_plan pl, FILE *resf, dou
 
 
 int main() {
+
+    cudaEvent_t start, stop;
+    cudaEventCreate(&start);
+    cudaEventCreate(&stop);
+    cudaEventRecord(start);
+
+
     FILE *resf = fopen("results.txt", "w");
     fprintf(resf, "# cpu1\n");
     fprintf(resf, "# parameters:\n# linear_size: %i\n", L);
@@ -238,7 +245,23 @@ int main() {
     }
 
 
-    fclose(resf);
 
+    cudaEventRecord(stop);
+    cudaEventSynchronize(stop);
+    float total_time = 0;
+    cudaEventElapsedTime(&total_time, start, stop);
+
+    FILE *timef = fopen("time.txt", "w");
+    int total_flips = n_temps * PLAN.steps_repeat * PLAN.t_max_sim * NTOT;
+    fprintf(timef, "# total execution time (milliseconds):\n");
+    fprintf(timef, "%f\n", total_time);
+    fprintf(timef, "# total spin flips performed:\n");
+    fprintf(timef, "%f\n", total_flips);
+    fprintf(timef, "# average spin flips per millisecond:\n");
+    fprintf(timef, "%f\n", ((float) total_flips  )/( (float) total_time ) );
+
+    fclose(timef);
+
+    fclose(resf);
 }
 

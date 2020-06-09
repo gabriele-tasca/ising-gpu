@@ -141,11 +141,6 @@ struct coords {
 };
 __device__ static inline coords dev_get_thread_coords() {
     struct coords thread_coords;
-    // the 4 lines below are outdated haha
-    // assign loc_x and loc_y so that only the inner square is covered
-    // also remember that now threads are launched in blocks of 32x32,
-    // but only the inner 30x30 are mapped to the grid...
-    // thread_coords on each block's edge threads mean nothing and should not be read
  
     thread_coords.x =  blockIdx.x*( THR_NUMBER - 2 ) + ( threadIdx.x ) ;
     thread_coords.y =  blockIdx.y*( THR_NUMBER - 2 ) + ( threadIdx.y ) ;

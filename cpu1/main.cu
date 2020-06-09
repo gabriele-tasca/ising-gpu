@@ -3,7 +3,7 @@
 #include <math.h>
 #include <string.h>
 
-#define L 258
+#define L 114
 static int AREA = L*L;
 static int NTOT = L*L - (4*L -4);
 
@@ -14,6 +14,8 @@ static int NTOT = L*L - (4*L -4);
 #define T_CYCLE_END 3
 #define T_CYCLE_STEP 0.04
 
+#define SINGLETEMP 3.0
+
 int n_temps = ( T_CYCLE_END - T_CYCLE_START )/ (T_CYCLE_STEP);
 
 
@@ -22,7 +24,7 @@ int n_temps = ( T_CYCLE_END - T_CYCLE_START )/ (T_CYCLE_STEP);
 #define SEED 1000
 
 // print history true/false
-#define HISTORY 0
+#define HISTORY 1
 
 struct measure_plan {
     int steps_repeat;
@@ -239,12 +241,13 @@ int main() {
 
     // dump(startgrid);
 
-
+    // cycle
     for( double kt=T_CYCLE_START; kt<T_CYCLE_END; kt+=T_CYCLE_STEP ) {
         measure_cycle(startgrid, PLAN, resf, kt);
     }
 
-
+    // just one
+    // measure_cycle(startgrid, PLAN, resf, SINGLETEMP);
 
     cudaEventRecord(stop);
     cudaEventSynchronize(stop);
@@ -252,13 +255,15 @@ int main() {
     cudaEventElapsedTime(&total_time, start, stop);
 
     FILE *timef = fopen("time.txt", "w");
-    int total_flips = n_temps * PLAN.steps_repeat * PLAN.t_max_sim * NTOT;
+    long int total_flips = ((long int)(n_temps))* ((long int)((PLAN.steps_repeat))) * ((long int)(PLAN.t_max_sim)) * ((long int)(NTOT));
+    
+    fprintf(timef, "# cpu1\n");
     fprintf(timef, "# total execution time (milliseconds):\n");
     fprintf(timef, "%f\n", total_time);
     fprintf(timef, "# total spin flips performed:\n");
-    fprintf(timef, "%f\n", total_flips);
+    fprintf(timef, "%li\n", total_flips);
     fprintf(timef, "# average spin flips per millisecond:\n");
-    fprintf(timef, "%f\n", ((float) total_flips  )/( (float) total_time ) );
+    fprintf(timef, "%Lf\n", ((long double) total_flips  )/( (long double) total_time ) );
 
     fclose(timef);
 

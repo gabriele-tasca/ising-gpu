@@ -7,7 +7,7 @@
 #include <assert.h>
 
 // L should be  (multiple of (THR_NUMBER - 2) ) + 2
-#define L 83
+#define L 114
 
 const int AREA = L*L;
 const int NTOT = (L-2)*(L-2);
@@ -15,11 +15,11 @@ const int NTOT = (L-2)*(L-2);
 // #define T 6.
 // #define T 0.1
 // #define T 2.26918531421
-#define T_CYCLE_START 1.6
-#define T_CYCLE_END 2.9
+#define T_CYCLE_START 1.5
+#define T_CYCLE_END 3.0
 #define T_CYCLE_STEP 0.04
 
-#define SINGLETEMP 2.4
+#define SINGLETEMP 3.0
 
 int n_temps = ( T_CYCLE_END - T_CYCLE_START )/ (T_CYCLE_STEP);
 
@@ -32,8 +32,8 @@ struct measure_plan {
     int t_measure_wait;
     int t_measure_interval; } 
 static PLAN = {
-    .steps_repeat = 20,
-    .t_max_sim = 200,
+    .steps_repeat = 1,
+    .t_max_sim = 250,
     .t_measure_wait = 50,
     .t_measure_interval = 20  };
 
@@ -41,7 +41,7 @@ static PLAN = {
 // print history true/false
 #define HISTORY 1
 
-const int THR_NUMBER = 29;
+const int THR_NUMBER = 30;
 const int BLOCK_NUMBER  = ( L-2)/( THR_NUMBER - 2 );
 const dim3 BLOCKS( BLOCK_NUMBER, BLOCK_NUMBER );
 const dim3 THREADS( THR_NUMBER, THR_NUMBER );
@@ -60,10 +60,10 @@ void update_avg(struct avg_tr * tr_p, float newval) {
     tr_p->sum +=  newval;
     tr_p->sum_squares += (newval*newval);
 }
-__device__ static inline void dev_update_avg(struct avg_tr * tr_p, float newval) {
-    tr_p->sum +=  newval;
-    tr_p->sum_squares += (newval*newval);
-}
+// __device__ static inline void dev_update_avg(struct avg_tr * tr_p, float newval) {
+//     tr_p->sum +=  newval;
+//     tr_p->sum_squares += (newval*newval);
+// }
 float average( struct avg_tr tr) {
     return (tr.sum)/((float) tr.n) ;
 }
@@ -272,13 +272,13 @@ __device__ void dev_update_magnetization_tracker(char dev_grid[L*L], float * dev
     
     if ( blockIdx.x == 0 && blockIdx.y == 0 && threadIdx.x == 0 && threadIdx.y == 0) {
         float val = ( ((float)  (*dev_partial_res) *2 ) - NTOT    ) / (float) NTOT;
-        /*AAAAA*/ *dev_single_run_avg += val;
+        /*fl__*/ *dev_single_run_avg += val;
         *dev_partial_res = 0;
     }
         
 }
 
-__global__ /*AAAAA*/ void dev_measure_cycle_kernel(struct measure_plan pl, char * dev_grid, curandState * const rngStates, float * dev_single_run_avg, int * dev_partial_res , double temperature ) {
+__global__ /*fl__*/ void dev_measure_cycle_kernel(struct measure_plan pl, char * dev_grid, curandState * const rngStates, float * dev_single_run_avg, int * dev_partial_res , double temperature ) {
     // INNER SIM LOOPS
 
     int ksim=0;
@@ -317,16 +317,16 @@ void parall_measure_cycle(char startgrid[L*L], struct measure_plan pl, char * de
 
     for( int krep=0; krep< pl.steps_repeat; krep++) {
         
-        /*AAAAA*/ float single_run_avg = 0.;
-        /*AAAAA*/ float * dev_single_run_avg;
-        /*AAAAA*/ cudaMalloc(&dev_single_run_avg, sizeof(float));
-        /*AAAAA*/ cudaMemcpy(dev_single_run_avg, &single_run_avg, sizeof(float), cudaMemcpyHostToDevice);
+        /*fl__*/ float single_run_avg = 0.;
+        /*fl__*/ float * dev_single_run_avg;
+        /*fl__*/ cudaMalloc(&dev_single_run_avg, sizeof(float));
+        /*fl__*/ cudaMemcpy(dev_single_run_avg, &single_run_avg, sizeof(float), cudaMemcpyHostToDevice);
 
         // printf("seeding with %i\n", SEED+krep);
         // initialize starting grid on the device for this sim
         cudaMemcpy(dev_grid, startgrid, L*L*sizeof(char), cudaMemcpyHostToDevice);
   
-        /*AAAAA*/ dev_measure_cycle_kernel<<<BLOCKS, THREADS>>>(pl, dev_grid, rngStates, dev_single_run_avg, dev_partial_res, temperature );
+        /*fl__*/ dev_measure_cycle_kernel<<<BLOCKS, THREADS>>>(pl, dev_grid, rngStates, dev_single_run_avg, dev_partial_res, temperature );
 
         cudaError_t err = cudaGetLastError();
         if (err != cudaSuccess) {
@@ -334,9 +334,9 @@ void parall_measure_cycle(char startgrid[L*L], struct measure_plan pl, char * de
         }
 
         // bring back results to CPU
-        /*AAAAA*/ cudaMemcpy(&single_run_avg, dev_single_run_avg, sizeof(float), cudaMemcpyDeviceToHost);
-        /*AAAAA*/ float lres = single_run_avg/(n_measures_per_sim);
-        // /*AAAAA*/ float lstdev = stdev(single_run_avg);
+        /*fl__*/ cudaMemcpy(&single_run_avg, dev_single_run_avg, sizeof(float), cudaMemcpyDeviceToHost);
+        /*fl__*/ float lres = single_run_avg/(n_measures_per_sim);
+        // /*fl__*/ float lstdev = stdev(single_run_avg);
         if (HISTORY) printf(" temperature: %f\n", temperature);
         if (HISTORY) printf("# average of simulation %i:\n %f\n", krep+1, lres);
 
@@ -346,7 +346,7 @@ void parall_measure_cycle(char startgrid[L*L], struct measure_plan pl, char * de
         cudaMemcpy(endgrid, dev_grid, L*L*sizeof(char), cudaMemcpyDeviceToHost);
         if (HISTORY) dump(endgrid);
         
-        /*AAAAA*/ cudaFree(dev_single_run_avg);
+        /*fl__*/ cudaFree(dev_single_run_avg);
     
     }
 
@@ -413,7 +413,7 @@ int main() {
     }
 
     // only 1:
-    parall_measure_cycle(startgrid, PLAN, dev_grid, d_rngStates, resf, SINGLETEMP);
+    // parall_measure_cycle(startgrid, PLAN, dev_grid, d_rngStates, resf, SINGLETEMP);
         
 
     cudaFree(d_rngStates);
@@ -426,13 +426,15 @@ int main() {
     cudaEventElapsedTime(&total_time, start, stop);
 
     FILE *timef = fopen("time.txt", "w");
-    int total_flips = n_temps * PLAN.steps_repeat * PLAN.t_max_sim * NTOT;
+    long int total_flips = ((long int)(n_temps))* ((long int)((PLAN.steps_repeat))) * ((long int)(PLAN.t_max_sim)) * ((long int)(NTOT));
+    
+    fprintf(timef, "# gpu1\n");
     fprintf(timef, "# total execution time (milliseconds):\n");
     fprintf(timef, "%f\n", total_time);
     fprintf(timef, "# total spin flips performed:\n");
-    fprintf(timef, "%f\n", total_flips);
+    fprintf(timef, "%li\n", total_flips);
     fprintf(timef, "# average spin flips per millisecond:\n");
-    fprintf(timef, "%f\n", ((float) total_flips  )/( (float) total_time ) );
+    fprintf(timef, "%Lf\n", ((long double) total_flips  )/( (long double) total_time ) );
 
     fclose(timef);
 

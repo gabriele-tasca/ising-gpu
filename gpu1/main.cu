@@ -19,7 +19,7 @@ const int NTOT = (L-2)*(L-2);
 #define T_CYCLE_END 3.0
 #define T_CYCLE_STEP 0.04
 
-#define SINGLETEMP 3.0
+#define SINGLETEMP 3.5
 
 int n_temps = ( T_CYCLE_END - T_CYCLE_START )/ (T_CYCLE_STEP);
 
@@ -33,7 +33,7 @@ struct measure_plan {
     int t_measure_interval; } 
 static PLAN = {
     .steps_repeat = 1,
-    .t_max_sim = 250,
+    .t_max_sim = 251,
     .t_measure_wait = 50,
     .t_measure_interval = 20  };
 
@@ -194,12 +194,12 @@ __device__ void dev_update_grid_shared(char grid[L*L], curandState * const rngSt
 
     // macro-checkboards
     // macro-white
-    if( (blockIdx.x + blockIdx.y%2)%2 == 0 ) {
+    if( (blockIdx.x + (blockIdx.y)%2)%2 == 0 ) {
         /////////////
         // checkboards
         // update only in the inner 30x30 block of threads, because the edge threads aren't mapped to any grid spins
-        if ( threadIdx.x != 0 && threadIdx.x != THR_NUMBER-1 && 
-            threadIdx.y != 0 && threadIdx.y != THR_NUMBER-1 ) {
+        if ( threadIdx.x > 0 && threadIdx.x != THR_NUMBER-1 && 
+            threadIdx.y > 0 && threadIdx.y != THR_NUMBER-1 ) {
             // white
             if( (glob_x + glob_y%2)%2 == 0 ) {
                 dev_update_spin_shared( shared_grid, shared_x, shared_y, rngStates, tid, temperature );
@@ -207,8 +207,8 @@ __device__ void dev_update_grid_shared(char grid[L*L], curandState * const rngSt
         }
         __syncthreads();
 
-        if ( threadIdx.x != 0 && threadIdx.x != THR_NUMBER-1 && 
-            threadIdx.y != 0 && threadIdx.y != THR_NUMBER-1 ) {
+        if ( threadIdx.x > 0 && threadIdx.x != THR_NUMBER-1 && 
+            threadIdx.y > 0 && threadIdx.y != THR_NUMBER-1 ) {
             // black
             if( (glob_x + glob_y%2)%2 == 1 ) {
                 dev_update_spin_shared( shared_grid, shared_x, shared_y, rngStates, tid, temperature );
@@ -216,19 +216,24 @@ __device__ void dev_update_grid_shared(char grid[L*L], curandState * const rngSt
         }
         __syncthreads();
 
-        grid[(glob_x )+ (glob_y )*L ]  = shared_grid[ threadIdx.x + threadIdx.y*THR_NUMBER ] ; // check formulas
+        if ( threadIdx.x > 0 && threadIdx.x != THR_NUMBER-1 && 
+            threadIdx.y > 0 && threadIdx.y != THR_NUMBER-1 ) {
+            grid[(glob_x )+ (glob_y )*L ]  = shared_grid[ threadIdx.x + threadIdx.y*THR_NUMBER ] ; 
+        }
         //////////
     }
+
+    
     __syncthreads();
 
     // macro-black
-    if( (blockIdx.x + blockIdx.y%2)%2 == 1 ) {
+    if( (blockIdx.x + (blockIdx.y)%2)%2 == 1 ) {
         //////////
 
         // checkboards
         // update only in the inner 30x30 block of threads, because the edge threads aren't mapped to any grid spins
-        if ( threadIdx.x != 0 && threadIdx.x != THR_NUMBER-1 && 
-                threadIdx.y != 0 && threadIdx.y != THR_NUMBER-1 ) {
+        if ( threadIdx.x > 0 && threadIdx.x != THR_NUMBER-1 && 
+            threadIdx.y > 0 && threadIdx.y != THR_NUMBER-1 ) {
             // white
             if( (glob_x + glob_y%2)%2 == 0 ) {
                 dev_update_spin_shared( shared_grid, shared_x, shared_y, rngStates, tid, temperature );
@@ -236,8 +241,8 @@ __device__ void dev_update_grid_shared(char grid[L*L], curandState * const rngSt
         }
         __syncthreads();
 
-        if ( threadIdx.x != 0 && threadIdx.x != THR_NUMBER-1 && 
-            threadIdx.y != 0 && threadIdx.y != THR_NUMBER-1 ) {
+        if ( threadIdx.x > 0 && threadIdx.x != THR_NUMBER-1 && 
+            threadIdx.y > 0 && threadIdx.y != THR_NUMBER-1 ) {
             // black
             if( (glob_x + glob_y%2)%2 == 1 ) {
                 dev_update_spin_shared( shared_grid, shared_x, shared_y, rngStates, tid, temperature );
@@ -245,8 +250,10 @@ __device__ void dev_update_grid_shared(char grid[L*L], curandState * const rngSt
         }
         __syncthreads();
 
-        grid[(glob_x )+ (glob_y )*L ]  = shared_grid[ threadIdx.x + threadIdx.y*THR_NUMBER ] ; // check formulas
-
+        if ( threadIdx.x > 0 && threadIdx.x != THR_NUMBER-1 && 
+            threadIdx.y > 0 && threadIdx.y != THR_NUMBER-1 ) {
+            grid[(glob_x )+ (glob_y )*L ]  = shared_grid[ threadIdx.x + threadIdx.y*THR_NUMBER ] ; 
+        }
         //////////
     }
 
@@ -402,13 +409,13 @@ int main() {
     // if (HISTORY) dump(startgrid);
 
     
-    // // temp cycle:
-    for( double kt=T_CYCLE_START; kt<T_CYCLE_END; kt+=T_CYCLE_STEP ) {
-        parall_measure_cycle(startgrid, PLAN, dev_grid, d_rngStates, resf, kt);
-    }
+    // // // temp cycle:
+    // for( double kt=T_CYCLE_START; kt<T_CYCLE_END; kt+=T_CYCLE_STEP ) {
+    //     parall_measure_cycle(startgrid, PLAN, dev_grid, d_rngStates, resf, kt);
+    // }
 
     // only 1:
-    // parall_measure_cycle(startgrid, PLAN, dev_grid, d_rngStates, resf, SINGLETEMP);
+    parall_measure_cycle(startgrid, PLAN, dev_grid, d_rngStates, resf, SINGLETEMP);
         
 
     cudaFree(d_rngStates);
@@ -434,6 +441,6 @@ int main() {
     fclose(timef);
 
     fclose(resf);
-
+    return 0;
 }
 

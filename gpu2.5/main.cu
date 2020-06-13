@@ -7,16 +7,16 @@
 #include <assert.h>
 
 // L should be  (multiple of (THR_NUMBER - 2) ) + 2
-const int THR_NUMBER = 29;
+const int THR_NUMBER = 30;
 
-#define SETBLOCKNUM 4
+#define SETBLOCKNUM 10
 // #define L 122
 const int L = (THR_NUMBER -2)* SETBLOCKNUM +2;
 
 // #define MULTISPIN unsigned char
-// #define MULTISIZE 8
-#define MULTISPIN unsigned int
-#define MULTISIZE 32
+#define MULTISPIN unsigned long int
+
+const int MULTISIZE = sizeof(MULTISPIN) *8;
 
 
 #define T_CYCLE_START 1.5
@@ -35,8 +35,8 @@ const int NTOT = (L-2)*(L-2);
 // static const float EXP4_TRESHOLD = exp( -(4.*J) / T);
 // static const float EXP8_TRESHOLD = exp( -(8.*J) / T);
 
-#define STEPS_REPEAT 1
-#define T_MAX_SIM 100
+#define STEPS_REPEAT 3
+#define T_MAX_SIM 200
 #define T_MEASURE_WAIT 50
 #define T_MEASURE_INTERVAL 10
 
@@ -58,8 +58,7 @@ struct avg_tr new_avg_tr(int locn) {
     struct avg_tr a = { .sum = 0, .sum_squares = 0, .n = locn};
     return a;
 }
-// if the numbers overflow, then it would be necessary to divide by N before summing
-// however it's faster the other way
+
 void update_avg(struct avg_tr * tr_p, float newval) {
     tr_p->sum +=  newval;
     tr_p->sum_squares += (newval*newval);
@@ -84,13 +83,13 @@ struct multiavg_tr {
 struct multiavg_tr new_multiavg_tr(int localn) {
     struct multiavg_tr a;
     for(int k=0; k<MULTISIZE * STEPS_REPEAT; k++ ) {
-        a.sum[k] = 0;
-        a.sum_squares[k] = 0;
+        a.sum[k] = 0.;
+        a.sum_squares[k] = 0.;
     }
     a.n = localn;
     return a;
 }
-// must be 0 =< k < MULTISIZE * STEPS_REPEAT
+// must be 0 =< k <MULTISIZE * STEPS_REPEAT
 // void update_multiavg(struct multiavg_tr * tr_p, float newval, int k) {
 //     tr_p->sum[k] +=  newval;
 //     tr_p->sum_squares[k] += (newval*newval);
@@ -150,7 +149,13 @@ __device__ void dev_set_spin_0 (MULTISPIN * multi, int index) {
     *multi &= ~(1 << index);
 }
 __device__ MULTISPIN dev_read_spin(MULTISPIN multi, int index) {
-     return ((multi >> index) & 1);
+    // return (( multi >> ((MULTISPIN) index ) ) & ((MULTISPIN) 1));
+    // if (multi & (1 << index) == 0) {
+    //     return 0;
+    // } else {
+    //     return 1;
+    // }
+    return ( (multi >> index) & 1 );
 }
 // each bit exp8 and exp8 describes the Metropolis RNG result for that bit,
 // specifying if the random r is bigger or smaller than the relevant values e^(4J/kT) and e^(8J/kT) (passed from outside)
@@ -289,7 +294,7 @@ __device__ void dev_update_grid(MULTISPIN grid[L*L], float exp4, float exp8, cur
 
     __shared__ MULTISPIN shared_grid[ THR_NUMBER*THR_NUMBER ];
 
-    shared_grid[ threadIdx.x + threadIdx.y*THR_NUMBER ] = grid[(glob_x )+ (glob_y )*L ]; // check formulas
+    shared_grid[ threadIdx.x + threadIdx.y*THR_NUMBER ] = grid[(glob_x )+ (glob_y )*L ];
     __syncthreads();
 
     // thread coords relative to the shared grid
@@ -379,7 +384,7 @@ void multidump_first(MULTISPIN grid[L*L]) {
 // non GPU function
 void multidump_a_few(MULTISPIN grid[L*L]) {
     for(int k=0; k<5; k++) {
-        printf("grid on bit %i (out of %i):\n", k+1, MULTISIZE);
+        printf("grid on bit %i (out of %i):\n", k, MULTISIZE);
         for(int x = 0; x<L; x++) {
             for(int y = 0; y<L; y++) {
                 
@@ -393,65 +398,155 @@ void multidump_a_few(MULTISPIN grid[L*L]) {
     }
 }
 
-// // GPU with nthreads = NTOT
 
-// // as above, the number of independent measures is hardcoded to MULTISIZE * STEPS_REPEAT.
-// // this function measures a single multispin, updating a chunk of the tracker. (for example the first half if rep_steps is 2)
-__device__ void dev_update_magnetization_tracker(MULTISPIN dev_grid[L*L], struct multiavg_tr * dev_tr_p, int * dev_partial_res, int rep_count ) {
-    int y = (  threadIdx.x / (L-2) ) +1;
-    int x = (  threadIdx.x % (L-2) ) +1;
-    for( int multik=0; multik < MULTISIZE; multik++) {
-        float spin = (float) dev_read_spin(dev_grid[x+y*L] , multik); 
-        atomicAdd(dev_partial_res, (spin*2.)-1.  );
-        __syncthreads();
-        
-        if (threadIdx.x == 0) {
-            *dev_partial_res = *dev_partial_res / (float) NTOT;
-            dev_update_multiavg( dev_tr_p, *dev_partial_res, multik + MULTISIZE*rep_count );
-            *dev_partial_res = 0;
-        }
-        __syncthreads();
-    }
-}
+__global__ void dev_measure_cycle_kernel(MULTISPIN * dev_grid, curandState * const rngStates, float * dev_single_run_avgs, int * dev_partial_res, float exp4, float exp8, int ksim ) {
 
-__global__ void dev_measure_cycle_kernel(MULTISPIN * dev_grid, curandState * const rngStates, struct multiavg_tr * dev_single_run_avgs, int * dev_partial_res, float exp4, float exp8  ) {
 
-    // INNER SIM LOOPS
-    int ksim=0;
-    for( ; ksim<T_MEASURE_WAIT; ksim++) {
-        dev_update_grid(dev_grid, exp4, exp8, rngStates );
-    }
-    // __syncthreads();
+        // setup
+
+        struct coords glob_coords = dev_get_thread_coords();
+        int glob_x = glob_coords.x;
+        int glob_y = glob_coords.y;
     
-    for( ; ksim<T_MAX_SIM; ksim++) {
-        dev_update_grid(dev_grid, exp4, exp8, rngStates );
+        // Determine thread ID (for RNG)
+        int blockId = blockIdx.x+ blockIdx.y * gridDim.x;
+        int tid = blockId * (blockDim.x * blockDim.y)+ (threadIdx.y * blockDim.x)+ threadIdx.x;
+    
+        __shared__ MULTISPIN shared_grid[ THR_NUMBER*THR_NUMBER ];
+        shared_grid[ threadIdx.x + threadIdx.y*THR_NUMBER ] = dev_grid[(glob_x )+ (glob_y )*L ];
+        __syncthreads();
         
-        if( ksim % T_MEASURE_INTERVAL == 0) {
-            // dev_update_magnetization_tracker(dev_grid, dev_single_run_avgs, dev_partial_res, krep);                
+        __shared__ int blocksum[ BLOCK_NUMBER*BLOCK_NUMBER*MULTISIZE ];
+        
+        if ( threadIdx.x == 0 && threadIdx.y == 0 ) {
+            for (int multik=0; multik<MULTISIZE; multik++) {
+                blocksum[ blockIdx.x + blockIdx.y*gridDim.x + multik*gridDim.x*gridDim.y ] = 0;
+            }
         }
+
+
+        // thread coords relative to the shared grid
+        int shared_x = threadIdx.x;
+        int shared_y = threadIdx.y;
+
+        __syncthreads();
+
+        ////////////////////////////////////////////
+        ////// measure magnetization
+        ////////////////////////////////////////////
+        if(ksim > T_MEASURE_WAIT && ksim % T_MEASURE_INTERVAL == 0) {
+        // this condition does not depend on the thread id in any way
+            for (int multik=0; multik<MULTISIZE; multik++) {
+                
+                if ( threadIdx.x != 0 && threadIdx.x != THR_NUMBER-1 
+                    && threadIdx.y != 0 && threadIdx.y != THR_NUMBER-1 ) {
+                    int lspin = (int) dev_read_spin(shared_grid[threadIdx.x + threadIdx.y*THR_NUMBER], multik );
+                    atomicAdd(  &(blocksum[ blockIdx.x + blockIdx.y*gridDim.x + multik*gridDim.x*gridDim.y ]), lspin  ); // change with pointer arithm
+                }
+                __syncthreads();
+                if ( threadIdx.x == 0 && threadIdx.y == 0 ) {
+                    int blockntot = (THR_NUMBER-2)*(THR_NUMBER-2);
+                    float nval = ((float) ( blocksum[ blockIdx.x + blockIdx.y*gridDim.x + multik*gridDim.x*gridDim.y ] *2 - blockntot ))/ ( (float) blockntot );
+                    atomicAdd(&(dev_single_run_avgs[multik]), nval);
+                    blocksum[ blockIdx.x + blockIdx.y*gridDim.x + multik*gridDim.x*gridDim.y   ] = 0;
+                }
+
+
+
+            }
+            // if ( threadIdx.y == 1 && threadIdx.x == 1 ) {
+            //     for(int multik=0; multik <MULTISIZE; multik++) {
+            //         dev_partial_res[multik] = 0;
+            //     }
+            //     printf(" devpart before %i\n", dev_partial_res[0]);
+                
+            // }
+            // __syncthreads();
+
+            
+
+
+
+
+        }
+
+        __syncthreads();
+    
+        ////////////////////////////////////////////
+        ////// update
+        ////////////////////////////////////////////
+        // macro-checkboards
+        // macro-white
+        if( (blockIdx.x + blockIdx.y%2)%2 == 0 ) {
+            /////////////
+            // checkboards
+            // update only in the inner 30x30 block of threads, because the edge threads aren't mapped to any grid spins
+            if ( threadIdx.x != 0 && threadIdx.x != THR_NUMBER-1 && 
+                threadIdx.y != 0 && threadIdx.y != THR_NUMBER-1 ) {
+                // white
+                if( (glob_x + glob_y%2)%2 == 0 ) {
+                    dev_update_multispin_shared( shared_grid, shared_x, shared_y, exp4, exp8, rngStates, tid);
+                }
+            }
+            __syncthreads();
+    
+            if ( threadIdx.x != 0 && threadIdx.x != THR_NUMBER-1 && 
+                threadIdx.y != 0 && threadIdx.y != THR_NUMBER-1 ) {
+                // black
+                if( (glob_x + glob_y%2)%2 == 1 ) {
+                    dev_update_multispin_shared( shared_grid, shared_x, shared_y, exp4, exp8, rngStates, tid);
+                }
+            }
+            __syncthreads();
+    
+            // if ( threadIdx.x > 0 && threadIdx.x != THR_NUMBER-1 && 
+                // threadIdx.y > 0 && threadIdx.y != THR_NUMBER-1 ) {
+                // dev_grid[(glob_x )+ (glob_y )*L ]  = shared_grid[ threadIdx.x + threadIdx.y*THR_NUMBER ] ; 
+            // }
+            //////////
+        }
+        __syncthreads();
+    
+        // macro-black
+        if( (blockIdx.x + blockIdx.y%2)%2 == 1 ) {
+            //////////
+    
+            // checkboards
+            // update only in the inner 30x30 block of threads, because the edge threads aren't mapped to any grid spins
+            if ( threadIdx.x != 0 && threadIdx.x != THR_NUMBER-1 && 
+                    threadIdx.y != 0 && threadIdx.y != THR_NUMBER-1 ) {
+                // white
+                if( (glob_x + glob_y%2)%2 == 0 ) {
+                    dev_update_multispin_shared( shared_grid, shared_x, shared_y, exp4, exp8, rngStates, tid);
+                }
+            }
+            __syncthreads();
+    
+            if ( threadIdx.x != 0 && threadIdx.x != THR_NUMBER-1 && 
+                threadIdx.y != 0 && threadIdx.y != THR_NUMBER-1 ) {
+                // black
+                if( (glob_x + glob_y%2)%2 == 1 ) {
+                    dev_update_multispin_shared( shared_grid, shared_x, shared_y, exp4, exp8, rngStates, tid);
+                }
+            }
+            __syncthreads();
+    
+        }
+        
+        if ( threadIdx.x > 0 && threadIdx.x != THR_NUMBER-1 && 
+            threadIdx.y > 0 && threadIdx.y != THR_NUMBER-1 ) {
+            dev_grid[(glob_x )+ (glob_y )*L ]  = shared_grid[ threadIdx.x + threadIdx.y*THR_NUMBER ] ; 
+        }
+        //////////
+
+
+
+
+    
+
         // __syncthreads();
-    }
-    // END INNER SIM LOOPS        
-
     
-    // INNER SIM LOOPS
 
-    // int ksim=0;
-    // for( ; ksim<pl.t_measure_wait; ksim++) {
-    //     dev_update_grid_shared(dev_grid, rngStates, temperature);
-    // }
-    // // end thermalization
-
-    // for( ; ksim<pl.t_max_sim; ksim++) {
-    //     dev_update_grid_shared(dev_grid, rngStates, temperature);
-
-    //     ////////////measures
-    //     if( ksim % pl.t_measure_interval == 0) {
-    //         dev_update_magnetization_tracker(dev_grid, dev_single_run_avg, dev_partial_res );
-    //     }
-
-    // }
-    // // END INNER SIM LOOPS
 }
 
 void parall_measure_cycle(MULTISPIN startgrid[L*L], MULTISPIN * dev_grid, float exp4, float exp8, curandState * const rngStates, FILE *resf) {
@@ -460,14 +555,31 @@ void parall_measure_cycle(MULTISPIN startgrid[L*L], MULTISPIN * dev_grid, float 
     float n_measures_per_sim = (float) ((T_MAX_SIM - T_MEASURE_WAIT)/T_MEASURE_INTERVAL);
 
     //OUTER REP LOOP  
-    struct multiavg_tr single_run_avgs = new_multiavg_tr(n_measures_per_sim);
-    struct multiavg_tr * dev_single_run_avgs;
-    cudaMalloc(&dev_single_run_avgs, sizeof(struct multiavg_tr));
-    cudaMemcpy(dev_single_run_avgs, &single_run_avgs, sizeof(struct multiavg_tr), cudaMemcpyHostToDevice);
+    // struct multiavg_tr single_run_avgs = new_multiavg_tr(n_measures_per_sim);
+    // struct multiavg_tr * dev_single_run_avgs;
+    // cudaMalloc(&dev_single_run_avgs, sizeof(struct multiavg_tr));
+    // cudaMemcpy(dev_single_run_avgs, &single_run_avgs, sizeof(struct multiavg_tr), cudaMemcpyHostToDevice);
 
     // extra space needed by update_magnetization
+    // int * dev_partial_res;
+    // cudaMalloc(&dev_partial_res, sizeof(int));
+
+    float single_run_avgs[MULTISIZE];
+    for (int k=0; k<MULTISIZE; k++) {single_run_avgs[k] = 0.;}
+    float * dev_single_run_avgs;
+    cudaMalloc(&dev_single_run_avgs, MULTISIZE*sizeof(float));
+    cudaMemcpy(dev_single_run_avgs, &single_run_avgs, MULTISIZE*sizeof(float), cudaMemcpyHostToDevice);
+
+    // extra space needed by update_magnetization
+    int partial_res[MULTISIZE];
+    for (int k=0; k<MULTISIZE; k++) {partial_res[k] = 0;}
     int * dev_partial_res;
-    cudaMalloc(&dev_partial_res, sizeof(int));
+    cudaMalloc(&dev_partial_res, MULTISIZE*sizeof(int));
+    cudaMemcpy(dev_partial_res, &partial_res, MULTISIZE*sizeof(int), cudaMemcpyHostToDevice);
+
+
+    // outer average
+    struct avg_tr avg_of_runs = new_avg_tr( MULTISIZE * STEPS_REPEAT );
 
     for( int krep=0; krep< STEPS_REPEAT; krep++) {
         if (HISTORY) printf("# simulation %i\n", krep+1);
@@ -475,32 +587,57 @@ void parall_measure_cycle(MULTISPIN startgrid[L*L], MULTISPIN * dev_grid, float 
 
         cudaMemcpy(dev_grid, startgrid, L*L*sizeof(MULTISPIN), cudaMemcpyHostToDevice);
         
-        dev_measure_cycle_kernel<<<BLOCKS, THREADS>>>(dev_grid, rngStates, dev_single_run_avgs, dev_partial_res, exp4, exp8 );
+        // kernel
+        for (int ksim=0; ksim<T_MAX_SIM; ksim++) {
 
-        cudaError_t err = cudaGetLastError();
+            dev_measure_cycle_kernel<<<BLOCKS, THREADS>>>(dev_grid, rngStates, dev_single_run_avgs, dev_partial_res, exp4, exp8, ksim );
+        }
+            cudaError_t err = cudaGetLastError();
         if (err != cudaSuccess) {
             printf("kernel: ERROR: %s\n", cudaGetErrorString(err));
         } else printf("kernel: no ERROR: %s\n", cudaGetErrorString(err));
+
+        // results
+        cudaMemcpy(&single_run_avgs, dev_single_run_avgs, MULTISIZE*sizeof(float), cudaMemcpyDeviceToHost);
+        for(int multik=0; multik <MULTISIZE; multik++) {
+            float lres = single_run_avgs[multik] / (n_measures_per_sim * BLOCK_NUMBER*BLOCK_NUMBER); // change
+            if (HISTORY) printf("# average on bit %i\n: %f\n", multik+1, lres);
+            update_avg(&avg_of_runs, lres);
+            // reset averages
+            single_run_avgs[multik] = 0.;
+            partial_res[multik] = 0;
+        }
+        cudaMemcpy(dev_single_run_avgs, &single_run_avgs, MULTISIZE*sizeof(float), cudaMemcpyHostToDevice);
+        cudaMemcpy(dev_partial_res, &   partial_res, MULTISIZE*sizeof(int), cudaMemcpyHostToDevice);
+
 
         if (HISTORY) printf("# end simulation %i\n", krep+1);
     }
     // END OUTER REPETITION LOOP
 
+    float l2av =  average(avg_of_runs);
+    float l2stdev =  stdev(avg_of_runs);
+    if (HISTORY) printf("# overall average \n: %f +- %f\n", l2av, l2stdev);
+    fprintf(resf, "%f ", l2av);
+    fprintf(resf, "%f\n", l2stdev);
 
-
-    cudaMemcpy(&single_run_avgs, dev_single_run_avgs, sizeof(struct multiavg_tr), cudaMemcpyDeviceToHost);
+    // cudaMemcpy(&single_run_avgs, dev_single_run_avgs, sizeof(struct multiavg_tr), cudaMemcpyDeviceToHost);
     
-    ///////////////
-    struct avg_tr avg_of_runs = new_avg_tr( MULTISIZE * STEPS_REPEAT );
-    for(int k=0; k < MULTISIZE * STEPS_REPEAT; k++) {
-        float lres = multiaverage(single_run_avgs, k);
-        float lstdev = multistdev(single_run_avgs, k);
+    // ///////////////
+    // struct avg_tr avg_of_runs = new_avg_tr( MULTISIZE * STEPS_REPEAT );
+    // for(int k=0; k <MULTISIZE * STEPS_REPEAT; k++) {
+    //     float lres = multiaverage(single_run_avgs, k);
+    //     float lstdev = multistdev(single_run_avgs, k);
 
-        fprintf(resf, "# average of simulation %i\n: %f +- %f\n", k+1, lres, lstdev);
-        update_avg(&avg_of_runs, lres);
-    }
-    fprintf(resf, "# overall average \n: %f +- %f\n", average(avg_of_runs), stdev(avg_of_runs));
-    ////////////////
+    //     if (HISTORY) printf("# average of simulation %i\n: %f +- %f\n", k+1, lres, lstdev);
+    //     update_avg(&avg_of_runs, lres);
+    // }
+    // float l2av =  average(avg_of_runs);
+    // float l2stdev =  stdev(avg_of_runs);
+    // if (HISTORY) printf("# overall average \n: %f +- %f\n", l2av, l2stdev);
+    // fprintf(resf, "%f ", l2av);
+    // fprintf(resf, "%f\n", l2stdev);
+    // ////////////////
 
     // grid for displaying end-state (of last rep only)
     MULTISPIN endgrid[L*L];
@@ -560,18 +697,24 @@ int main() {
     init_t0_grid(startgrid);
     // multidump_a_few(startgrid);
 
-    // // temp cycle:
-    // for( float kt=T_CYCLE_START; kt<T_CYCLE_END; kt+=T_CYCLE_STEP ) {
-    //     const float EXP4 = exp( -(4.*J) / kt);
-    //     const float EXP8 = exp( -(8.*J) / kt);
+    // temp cycle:
+    for( float kt=T_CYCLE_START; kt<T_CYCLE_END; kt+=T_CYCLE_STEP ) {
+        const float EXP4 = exp( -(4.*J) / kt);
+        const float EXP8 = exp( -(8.*J) / kt);
 
+    //     fprintf(resf, "%f ", kt);
+    //     if (HISTORY) printf("temperature: %f\n", kt);
     //     parall_measure_cycle(startgrid, dev_grid, EXP4, EXP8, d_rngStates, resf);
     // }
 
+    // printf(" rng malloc size: %i\n", THR_NUMBER*THR_NUMBER*BLOCK_NUMBER*BLOCK_NUMBER*sizeof(curandState));
+
     // only 1:
-    const float EXP4 = exp( -(4.*J) / SINGLETEMP);
-    const float EXP8 = exp( -(8.*J) / SINGLETEMP);
-    parall_measure_cycle(startgrid, dev_grid, EXP4, EXP8, d_rngStates, resf);
+    // const float EXP4 = exp( -(4.*J) / SINGLETEMP);
+    // const float EXP8 = exp( -(8.*J) / SINGLETEMP);
+    // fprintf(resf, "%f ", SINGLETEMP);
+    // if (HISTORY) printf("temperature: %f\n", SINGLETEMP);
+    // parall_measure_cycle(startgrid, dev_grid, EXP4, EXP8, d_rngStates, resf);
 
 
     cudaFree(d_rngStates);

@@ -9,12 +9,12 @@
 // L should be  (multiple of (THR_NUMBER - 2) ) + 2
 const int THR_NUMBER = 30;
 
-#define SETBLOCKNUM 10
+#define SETBLOCKNUM 5
 // #define L 122
 const int L = (THR_NUMBER -2)* SETBLOCKNUM +2;
 
 // #define MULTISPIN unsigned char
-#define MULTISPIN unsigned long int
+#define MULTISPIN unsigned int
 
 const int MULTISIZE = sizeof(MULTISPIN) *8;
 
@@ -36,8 +36,8 @@ const int NTOT = (L-2)*(L-2);
 // static const float EXP8_TRESHOLD = exp( -(8.*J) / T);
 
 #define STEPS_REPEAT 3
-#define T_MAX_SIM 200
-#define T_MEASURE_WAIT 50
+#define T_MAX_SIM 100
+#define T_MEASURE_WAIT 20
 #define T_MEASURE_INTERVAL 10
 
 // print history true/false
@@ -278,94 +278,6 @@ __device__ void dev_update_multispin_shared(MULTISPIN grid[THR_NUMBER*THR_NUMBER
 
 
 
-// for now with nthreads = NTOT
-__device__ void dev_update_grid(MULTISPIN grid[L*L], float exp4, float exp8, curandState * const rngStates ) {
-    // the first argument here is the GLOBAL grid
-    
-    // thread coords relative to the GLOBAL grid
-    struct coords glob_coords = dev_get_thread_coords();
-    int glob_x = glob_coords.x;
-    int glob_y = glob_coords.y;
-
-    // Determine thread ID (for RNG)
-    int blockId = blockIdx.x+ blockIdx.y * gridDim.x;
-    int tid = blockId * (blockDim.x * blockDim.y)+ (threadIdx.y * blockDim.x)+ threadIdx.x;
-
-
-    __shared__ MULTISPIN shared_grid[ THR_NUMBER*THR_NUMBER ];
-
-    shared_grid[ threadIdx.x + threadIdx.y*THR_NUMBER ] = grid[(glob_x )+ (glob_y )*L ];
-    __syncthreads();
-
-    // thread coords relative to the shared grid
-    int shared_x = threadIdx.x;
-    int shared_y = threadIdx.y;
-
-    // macro-checkboards
-    // macro-white
-    if( (blockIdx.x + blockIdx.y%2)%2 == 0 ) {
-        /////////////
-        // checkboards
-        // update only in the inner 30x30 block of threads, because the edge threads aren't mapped to any grid spins
-        if ( threadIdx.x != 0 && threadIdx.x != THR_NUMBER-1 && 
-            threadIdx.y != 0 && threadIdx.y != THR_NUMBER-1 ) {
-            // white
-            if( (glob_x + glob_y%2)%2 == 0 ) {
-                dev_update_multispin_shared( shared_grid, shared_x, shared_y, exp4, exp8, rngStates, tid);
-            }
-        }
-        __syncthreads();
-
-        if ( threadIdx.x != 0 && threadIdx.x != THR_NUMBER-1 && 
-            threadIdx.y != 0 && threadIdx.y != THR_NUMBER-1 ) {
-            // black
-            if( (glob_x + glob_y%2)%2 == 1 ) {
-                dev_update_multispin_shared( shared_grid, shared_x, shared_y, exp4, exp8, rngStates, tid);
-            }
-        }
-        __syncthreads();
-
-        if ( threadIdx.x > 0 && threadIdx.x != THR_NUMBER-1 && 
-            threadIdx.y > 0 && threadIdx.y != THR_NUMBER-1 ) {
-            grid[(glob_x )+ (glob_y )*L ]  = shared_grid[ threadIdx.x + threadIdx.y*THR_NUMBER ] ; 
-        }
-        //////////
-    }
-    __syncthreads();
-
-    // macro-black
-    if( (blockIdx.x + blockIdx.y%2)%2 == 1 ) {
-        //////////
-
-        // checkboards
-        // update only in the inner 30x30 block of threads, because the edge threads aren't mapped to any grid spins
-        if ( threadIdx.x != 0 && threadIdx.x != THR_NUMBER-1 && 
-                threadIdx.y != 0 && threadIdx.y != THR_NUMBER-1 ) {
-            // white
-            if( (glob_x + glob_y%2)%2 == 0 ) {
-                dev_update_multispin_shared( shared_grid, shared_x, shared_y, exp4, exp8, rngStates, tid);
-            }
-        }
-        __syncthreads();
-
-        if ( threadIdx.x != 0 && threadIdx.x != THR_NUMBER-1 && 
-            threadIdx.y != 0 && threadIdx.y != THR_NUMBER-1 ) {
-            // black
-            if( (glob_x + glob_y%2)%2 == 1 ) {
-                dev_update_multispin_shared( shared_grid, shared_x, shared_y, exp4, exp8, rngStates, tid);
-            }
-        }
-        __syncthreads();
-
-        if ( threadIdx.x > 0 && threadIdx.x != THR_NUMBER-1 && 
-            threadIdx.y > 0 && threadIdx.y != THR_NUMBER-1 ) {
-            grid[(glob_x )+ (glob_y )*L ]  = shared_grid[ threadIdx.x + threadIdx.y*THR_NUMBER ] ; 
-        }
-        //////////
-    }
-
-}
-
 // non GPU function
 void multidump_first(MULTISPIN grid[L*L]) {
     // printf("first bit grid (out of %i):\n", MULTISIZE);
@@ -416,18 +328,13 @@ __global__ void dev_measure_cycle_kernel(MULTISPIN * dev_grid, curandState * con
         shared_grid[ threadIdx.x + threadIdx.y*THR_NUMBER ] = dev_grid[(glob_x )+ (glob_y )*L ];
         __syncthreads();
         
-        __shared__ int blocksum[ BLOCK_NUMBER*BLOCK_NUMBER*MULTISIZE ];
+        __shared__ int blocksum[ MULTISIZE ];
         
         if ( threadIdx.x == 0 && threadIdx.y == 0 ) {
             for (int multik=0; multik<MULTISIZE; multik++) {
-                blocksum[ blockIdx.x + blockIdx.y*gridDim.x + multik*gridDim.x*gridDim.y ] = 0;
+                blocksum[ multik ] = 0;
             }
         }
-
-
-        // thread coords relative to the shared grid
-        int shared_x = threadIdx.x;
-        int shared_y = threadIdx.y;
 
         __syncthreads();
 
@@ -441,14 +348,14 @@ __global__ void dev_measure_cycle_kernel(MULTISPIN * dev_grid, curandState * con
                 if ( threadIdx.x != 0 && threadIdx.x != THR_NUMBER-1 
                     && threadIdx.y != 0 && threadIdx.y != THR_NUMBER-1 ) {
                     int lspin = (int) dev_read_spin(shared_grid[threadIdx.x + threadIdx.y*THR_NUMBER], multik );
-                    atomicAdd(  &(blocksum[ blockIdx.x + blockIdx.y*gridDim.x + multik*gridDim.x*gridDim.y ]), lspin  ); // change with pointer arithm
+                    atomicAdd(  &(blocksum[ multik ]), lspin  ); // change with pointer arithm
                 }
                 __syncthreads();
                 if ( threadIdx.x == 0 && threadIdx.y == 0 ) {
                     int blockntot = (THR_NUMBER-2)*(THR_NUMBER-2);
-                    float nval = ((float) ( blocksum[ blockIdx.x + blockIdx.y*gridDim.x + multik*gridDim.x*gridDim.y ] *2 - blockntot ))/ ( (float) blockntot );
+                    float nval = ((float) ( blocksum[ multik] *2 - blockntot ))/ ( (float) blockntot );
                     atomicAdd(&(dev_single_run_avgs[multik]), nval);
-                    blocksum[ blockIdx.x + blockIdx.y*gridDim.x + multik*gridDim.x*gridDim.y   ] = 0;
+                    blocksum[ multik  ] = 0;
                 }
 
 
@@ -485,7 +392,7 @@ __global__ void dev_measure_cycle_kernel(MULTISPIN * dev_grid, curandState * con
                 threadIdx.y != 0 && threadIdx.y != THR_NUMBER-1 ) {
                 // white
                 if( (glob_x + glob_y%2)%2 == 0 ) {
-                    dev_update_multispin_shared( shared_grid, shared_x, shared_y, exp4, exp8, rngStates, tid);
+                    dev_update_multispin_shared( shared_grid, threadIdx.x, threadIdx.y, exp4, exp8, rngStates, tid);
                 }
             }
             __syncthreads();
@@ -494,7 +401,7 @@ __global__ void dev_measure_cycle_kernel(MULTISPIN * dev_grid, curandState * con
                 threadIdx.y != 0 && threadIdx.y != THR_NUMBER-1 ) {
                 // black
                 if( (glob_x + glob_y%2)%2 == 1 ) {
-                    dev_update_multispin_shared( shared_grid, shared_x, shared_y, exp4, exp8, rngStates, tid);
+                    dev_update_multispin_shared( shared_grid, threadIdx.x, threadIdx.y, exp4, exp8, rngStates, tid);
                 }
             }
             __syncthreads();
@@ -517,7 +424,7 @@ __global__ void dev_measure_cycle_kernel(MULTISPIN * dev_grid, curandState * con
                     threadIdx.y != 0 && threadIdx.y != THR_NUMBER-1 ) {
                 // white
                 if( (glob_x + glob_y%2)%2 == 0 ) {
-                    dev_update_multispin_shared( shared_grid, shared_x, shared_y, exp4, exp8, rngStates, tid);
+                    dev_update_multispin_shared( shared_grid, threadIdx.x, threadIdx.y, exp4, exp8, rngStates, tid);
                 }
             }
             __syncthreads();
@@ -526,7 +433,7 @@ __global__ void dev_measure_cycle_kernel(MULTISPIN * dev_grid, curandState * con
                 threadIdx.y != 0 && threadIdx.y != THR_NUMBER-1 ) {
                 // black
                 if( (glob_x + glob_y%2)%2 == 1 ) {
-                    dev_update_multispin_shared( shared_grid, shared_x, shared_y, exp4, exp8, rngStates, tid);
+                    dev_update_multispin_shared( shared_grid, threadIdx.x, threadIdx.y, exp4, exp8, rngStates, tid);
                 }
             }
             __syncthreads();
@@ -697,25 +604,25 @@ int main() {
     init_t0_grid(startgrid);
     // multidump_a_few(startgrid);
 
-    // temp cycle:
-    for( float kt=T_CYCLE_START; kt<T_CYCLE_END; kt+=T_CYCLE_STEP ) {
-        const float EXP4 = exp( -(4.*J) / kt);
-        const float EXP8 = exp( -(8.*J) / kt);
-
+    // // temp cycle:
+    // for( float kt=T_CYCLE_START; kt<T_CYCLE_END; kt+=T_CYCLE_STEP ) {
+    //     const float EXP4 = exp( -(4.*J) / kt);
+    //     const float EXP8 = exp( -(8.*J) / kt);
     //     fprintf(resf, "%f ", kt);
     //     if (HISTORY) printf("temperature: %f\n", kt);
     //     parall_measure_cycle(startgrid, dev_grid, EXP4, EXP8, d_rngStates, resf);
     // }
 
-    // printf(" rng malloc size: %i\n", THR_NUMBER*THR_NUMBER*BLOCK_NUMBER*BLOCK_NUMBER*sizeof(curandState));
-
-    // only 1:
-    // const float EXP4 = exp( -(4.*J) / SINGLETEMP);
-    // const float EXP8 = exp( -(8.*J) / SINGLETEMP);
-    // fprintf(resf, "%f ", SINGLETEMP);
-    // if (HISTORY) printf("temperature: %f\n", SINGLETEMP);
-    // parall_measure_cycle(startgrid, dev_grid, EXP4, EXP8, d_rngStates, resf);
-
+    // // // // only 1:
+    // // // // just one:
+    const float EXP4 = exp( -(4.*J) / SINGLETEMP);
+    const float EXP8 = exp( -(8.*J) / SINGLETEMP);
+    fprintf(resf, "%f ", SINGLETEMP);
+    if (HISTORY) printf("temperature: %f\n", SINGLETEMP);
+    parall_measure_cycle(startgrid, dev_grid, EXP4, EXP8, d_rngStates, resf);
+    
+    printf(" ERROR? rng malloc size: %i\n", THR_NUMBER*THR_NUMBER*BLOCK_NUMBER*BLOCK_NUMBER*sizeof(curandState));
+    printf(" ERROR? shared memory used: %i\n", THR_NUMBER*THR_NUMBER*sizeof(MULTISPIN) + BLOCK_NUMBER*BLOCK_NUMBER*MULTISIZE*sizeof(int));
 
     cudaFree(d_rngStates);
     cudaFree(dev_grid);

@@ -5,30 +5,45 @@
 #include <time.h>
 
 // hard parameters
-#define L 150
+#define L 198
 #define MULTISPIN unsigned int
 #define MULTISIZE 32
 // #define MULTISPIN unsigned long int
 // #define MULTISIZE 64
 
-#define STEPS_REPEAT 3
+
 
 const int AREA = L*L;
 const int NTOT = (L-2)*(L-2);
 
+#define T_CYCLE_START 1.6
+#define T_CYCLE_END 2.9
+#define T_CYCLE_STEP 0.1
 
-//external parameters
+#define SINGLETEMP 3.0
 
-struct parameters {
-    float t;
-    float t_start;
-    float j;
+int n_temps = ( T_CYCLE_END - T_CYCLE_START )/ (T_CYCLE_STEP);
+
+
+#define STEPS_REPEAT 3
+
+#define J 1.
+
+#define SEED 1000
+
+// print history true/false
+#define HISTORY 1
+
+struct measure_plan {
     int steps_repeat;
     int t_max_sim;
     int t_measure_wait;
-    int t_measure_interval;
-    int seed;
-};
+    int t_measure_interval; } 
+static PLAN = {
+    .steps_repeat = 2,
+    .t_max_sim = 200,
+    .t_measure_wait = 50,
+    .t_measure_interval = 10  };
 
 
 
@@ -299,72 +314,39 @@ void update_magnetization_tracker( struct multiavg_tr * tr_p, MULTISPIN grid[L*L
 //     tr_p->sum_squares[k] += (newval*newval);
 // }
 
-
-int main() {
-    // read params
-
-    FILE *param_f = fopen("params.txt", "r");
-    struct parameters par;
-
-    fscanf(param_f, "temperature %f\ntemperature_start %f\ncoupling %f\nsimulation_t_max %i\nthermalization_time %i\ntime_between_measurements %i\nbase_random_seed %i\n", 
-                    &(par.t),     &(par.t_start),     &(par.j),    &(par.t_max_sim),   &(par.t_measure_wait),   &(par.t_measure_interval),       &(par.seed));
-    printf("%f\n", par.t);
-    printf("%f\n", par.t_start);
-    printf("%f\n", par.j);
-    printf("%i\n", par.t_max_sim);
-    printf("%i\n", par.t_measure_wait);
-    printf("%i\n", par.t_measure_interval);
-    printf("%i\n", par.seed);
-    fclose(param_f);
+void measure_cycle(MULTISPIN startgrid[L*L], struct measure_plan pl, FILE *resf, double EXP4, double EXP8) {
 
 
-    srand(par.seed);
-    MULTISPIN startgrid[L*L];
-    init_t0_grid(startgrid);
-
-
-
-    const double EXP4 = exp( -(4.*par.j) / par.t);
-    const double EXP8 = exp( -(8.*par.j) / par.t);
-
-    // measure cycle
-    FILE *resf = fopen("results.txt", "w");
-    fprintf(resf, "# cpu2\n");
-    fprintf(resf, "# hard-coded parameters:\n# linear_size: %i\n# spin_coding_size: %i\n", L, MULTISIZE);
-    fprintf(resf, "# parameters:\n# temperature: %f\n#temp_start: %f\n# coupling: %f\n# repetitions: %i\n", par.t, par.t_start, par.j, STEPS_REPEAT);
-    fprintf(resf, "# simulation_t_max: %i\n# thermalization_time: %i\n# time_between_measurements: %i\n# base_random_seed: %i\n",  par.t_max_sim, par.t_measure_wait, par.t_measure_interval, par.seed);
-    fprintf(resf, "# extra:\n# area: %i\n# active_spins_excluding_boundaries:%i\n# total_independent_sims: %i\n", AREA, NTOT, MULTISIZE*STEPS_REPEAT);
-    
     MULTISPIN grid[L*L];
-    double n_measures_per_sim = (double) ((par.t_max_sim - par.t_measure_wait)/par.t_measure_interval);
+    double n_measures_per_sim = (double) ((pl.t_max_sim - pl.t_measure_wait)/pl.t_measure_interval);
 
     //OUTER REP LOOP  
     struct multiavg_tr single_run_avgs = new_multiavg_tr(n_measures_per_sim);
 
     for( int krep=0; krep< STEPS_REPEAT; krep++) {
-        srand(par.seed + krep);
+        srand(SEED + krep);
         memcpy(grid, startgrid, L*L*sizeof(MULTISPIN) );
 
         // INNER SIM LOOPS
-        printf("# simulation %i\n", krep+1);
-        printf("#    waiting thermalization for the first %i sim steps.\n", par.t_measure_wait);
+        if(HISTORY) printf("# simulation %i\n", krep+1);
+        if(HISTORY) printf("#    waiting thermalization for the first %i sim steps.\n", pl.t_measure_wait);
         int ksim=0;
-        for( ; ksim<par.t_measure_wait; ksim++) {
+        for( ; ksim<pl.t_measure_wait; ksim++) {
             update_grid_black(grid, EXP4, EXP8);
             update_grid_white(grid, EXP4, EXP8);
         }
-        printf("#    finished thermalization. running %i more simulation steps and performing %f measures.\n",(par.t_max_sim - par.t_measure_wait), n_measures_per_sim);
+        if(HISTORY) printf("#    finished thermalization. running %i more simulation steps and performing %f measures.\n",(pl.t_max_sim - pl.t_measure_wait), n_measures_per_sim);
 
-        for( ; ksim<par.t_max_sim; ksim++) {
+        for( ; ksim<pl.t_max_sim; ksim++) {
             update_grid_black(grid, EXP4, EXP8);
             update_grid_white(grid, EXP4, EXP8);
             
-            if( ksim % par.t_measure_interval == 0) {
+            if( ksim % pl.t_measure_interval == 0) {
                 update_magnetization_tracker(&single_run_avgs, grid, krep);
             }
         }
         // END INNER SIM LOOPS        
-        printf("# end simulation %i\n", krep+1);
+        if(HISTORY) printf("# end simulation %i\n", krep+1);
     }
     // END OUTER REPETITION LOOP
 
@@ -381,8 +363,66 @@ int main() {
 
     multidump_a_few(grid);
 
+}
 
 
+int main() {
+    // read params
+
+
+    cudaEvent_t start, stop;
+    cudaEventCreate(&start);
+    cudaEventCreate(&stop);
+    cudaEventRecord(start);
+
+
+    FILE *resf = fopen("results.txt", "w");
+    fprintf(resf, "# cpu1\n");
+    fprintf(resf, "# parameters:\n# linear_size: %i\n", L);
+    fprintf(resf, "#temp_start: %f\n# coupling: %f\n# repetitions: %i\n", 0., J, PLAN.steps_repeat);
+    fprintf(resf, "# simulation_t_max: %i\n# thermalization_time: %i\n# time_between_measurements: %i\n# base_random_seed: %i\n",  PLAN.t_max_sim, PLAN.t_measure_wait, PLAN.t_measure_interval, SEED);
+    fprintf(resf, "# extra:\n# area: %i\n# active_spins_excluding_boundaries:%i\n", AREA, NTOT);
+    fprintf(resf, "\n");
+    fprintf(resf, "# columns: temperature - average magnetization - uncertainty \n");
+
+
+    srand(SEED);
+    MULTISPIN startgrid[L*L];
+    init_t0_grid(startgrid);
+
+
+
+
+
+
+
+    // cycle
+    for( double kt=T_CYCLE_START; kt<T_CYCLE_END; kt+=T_CYCLE_STEP ) {
+        double EXP4 = exp( -(4.*J) / kt);
+        double EXP8 = exp( -(8.*J) / kt);
+        measure_cycle(startgrid, PLAN, resf, EXP4, EXP8);
+    }
+
+
+    cudaEventRecord(stop);
+    cudaEventSynchronize(stop);
+    float total_time = 0;
+    cudaEventElapsedTime(&total_time, start, stop);
+
+    FILE *timef = fopen("time.txt", "w");
+    long int total_flips = ((long int)(n_temps))* ((long int)((PLAN.steps_repeat))) * ((long int)(PLAN.t_max_sim)) * ((long int)(MULTISIZE)) * ((long int)(NTOT));
+    
+    fprintf(timef, "# cpu1\n");
+    fprintf(timef, "# total execution time (milliseconds):\n");
+    fprintf(timef, "%f\n", total_time);
+    fprintf(timef, "# total spin flips performed:\n");
+    fprintf(timef, "%li\n", total_flips);
+    fprintf(timef, "# average spin flips per millisecond:\n");
+    fprintf(timef, "%Lf\n", ((long double) total_flips  )/( (long double) total_time ) );
+
+    fclose(timef);
+
+    fclose(resf);
 
 
     return 0;

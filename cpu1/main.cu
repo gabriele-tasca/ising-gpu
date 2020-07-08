@@ -3,16 +3,16 @@
 #include <math.h>
 #include <string.h>
 
-#define L 114
+#define L 198
 static int AREA = L*L;
 static int NTOT = L*L - (4*L -4);
 
 // #define T 6.
 // #define T 0.1
 // #define T 2.26918531421
-#define T_CYCLE_START 1.5
-#define T_CYCLE_END 3
-#define T_CYCLE_STEP 0.04
+#define T_CYCLE_START 1.6
+#define T_CYCLE_END 2.9
+#define T_CYCLE_STEP 0.1
 
 #define SINGLETEMP 3.0
 
@@ -32,8 +32,8 @@ struct measure_plan {
     int t_measure_wait;
     int t_measure_interval; } 
 static PLAN = {
-    .steps_repeat = 100,
-    .t_max_sim = 250,
+    .steps_repeat = 64,
+    .t_max_sim = 200,
     .t_measure_wait = 50,
     .t_measure_interval = 10  };
 

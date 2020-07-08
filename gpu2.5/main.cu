@@ -9,8 +9,7 @@
 // L should be  (multiple of (THR_NUMBER - 2) ) + 2
 const int THR_NUMBER = 30;
 
-#define SETBLOCKNUM 5
-// #define L 122
+#define SETBLOCKNUM 7
 const int L = (THR_NUMBER -2)* SETBLOCKNUM +2;
 
 // #define MULTISPIN unsigned char
@@ -19,11 +18,12 @@ const int L = (THR_NUMBER -2)* SETBLOCKNUM +2;
 const int MULTISIZE = sizeof(MULTISPIN) *8;
 
 
-#define T_CYCLE_START 1.5
-#define T_CYCLE_END 3.0
-#define T_CYCLE_STEP 0.04
+#define T_CYCLE_START 1.4
+#define T_CYCLE_END 3.1
+#define T_CYCLE_STEP 0.02
 
-#define SINGLETEMP 2.4
+#define SINGLETEMP 3.0
+
 int n_temps = ( T_CYCLE_END - T_CYCLE_START )/ (T_CYCLE_STEP);
 
 #define J 1.
@@ -36,12 +36,12 @@ const int NTOT = (L-2)*(L-2);
 // static const float EXP8_TRESHOLD = exp( -(8.*J) / T);
 
 #define STEPS_REPEAT 3
-#define T_MAX_SIM 100
-#define T_MEASURE_WAIT 20
+#define T_MAX_SIM 600
+#define T_MEASURE_WAIT 50
 #define T_MEASURE_INTERVAL 10
 
 // print history true/false
-#define HISTORY 1
+#define HISTORY 0
 
 const int BLOCK_NUMBER  = ( L-2)/( THR_NUMBER - 2 );
 const dim3 BLOCKS( BLOCK_NUMBER, BLOCK_NUMBER );
@@ -94,10 +94,10 @@ struct multiavg_tr new_multiavg_tr(int localn) {
 //     tr_p->sum[k] +=  newval;
 //     tr_p->sum_squares[k] += (newval*newval);
 // }
-__device__ void dev_update_multiavg(struct multiavg_tr * tr_p, float newval, int k) {
-    tr_p->sum[k] +=  newval;
-    tr_p->sum_squares[k] += (newval*newval);
-}
+// __device__ void dev_update_multiavg(struct multiavg_tr * tr_p, float newval, int k) {
+//     tr_p->sum[k] +=  newval;
+//     tr_p->sum_squares[k] += (newval*newval);
+// }
 float multiaverage( struct multiavg_tr tr, int k) {
     return (tr.sum[k])/((float) tr.n) ;
 }
@@ -249,21 +249,21 @@ __device__ void dev_update_multispin_shared(MULTISPIN grid[THR_NUMBER*THR_NUMBER
     //   1   |   1   |        |              |    
     //  101  |  1 1  |   -8   |  1 0    1 0  |                   
     //   1   |   1   |        |              |
-    //                                                         
+                                                            
     //   0   |   0   |        |              |    
     //  101  |  1 1  |   -4   |  0 1    1 0  |         (j1 | j3)          
     //   1   |   1   |        |              |
-    //                                                         
+                                                            
     //   0   |   0   |        |  0 0    1 0  |    
     //  001  |  0 1  |    0   |      or      |-------------------------                  
     //   1   |   1   |        |  0 1    0 1  |      ~(j1^j3) & (j2&j4))
-    //------------------------------------------------------------------
-    //                                                        
+    // ------------------------------------------------------------------
+                                                           
     //   0   |   0   |        |              |    
     //  000  |  0 0  |    +4  |              |       (j2 | j4) & exp4      
     //   1   |   1   |        |              |
-    //------------------------------------------------------------------ 
-    //                                                        
+    // ------------------------------------------------------------------ 
+                                                           
     //   0   |   0   |        |              |    
     //  000  |  0 0  |    +8  |  0 0    0 0  |           exp8       
     //   0   |   0   |        |              |
@@ -348,7 +348,7 @@ __global__ void dev_measure_cycle_kernel(MULTISPIN * dev_grid, curandState * con
                 if ( threadIdx.x != 0 && threadIdx.x != THR_NUMBER-1 
                     && threadIdx.y != 0 && threadIdx.y != THR_NUMBER-1 ) {
                     int lspin = (int) dev_read_spin(shared_grid[threadIdx.x + threadIdx.y*THR_NUMBER], multik );
-                    atomicAdd(  &(blocksum[ multik ]), lspin  ); // change with pointer arithm
+                    atomicAdd(  &(blocksum[ multik ]), lspin  ); // change with pointer arithm?
                 }
                 __syncthreads();
                 if ( threadIdx.x == 0 && threadIdx.y == 0 ) {
@@ -605,24 +605,24 @@ int main() {
     // multidump_a_few(startgrid);
 
     // // temp cycle:
-    // for( float kt=T_CYCLE_START; kt<T_CYCLE_END; kt+=T_CYCLE_STEP ) {
-    //     const float EXP4 = exp( -(4.*J) / kt);
-    //     const float EXP8 = exp( -(8.*J) / kt);
-    //     fprintf(resf, "%f ", kt);
-    //     if (HISTORY) printf("temperature: %f\n", kt);
-    //     parall_measure_cycle(startgrid, dev_grid, EXP4, EXP8, d_rngStates, resf);
-    // }
+    for( float kt=T_CYCLE_START; kt<T_CYCLE_END; kt+=T_CYCLE_STEP ) {
+        const float EXP4 = exp( -(4.*J) / kt);
+        const float EXP8 = exp( -(8.*J) / kt);
+        fprintf(resf, "%f ", kt);
+        if (HISTORY) printf("temperature: %f\n", kt);
+        parall_measure_cycle(startgrid, dev_grid, EXP4, EXP8, d_rngStates, resf);
+    }
 
     // // // // only 1:
     // // // // just one:
-    const float EXP4 = exp( -(4.*J) / SINGLETEMP);
-    const float EXP8 = exp( -(8.*J) / SINGLETEMP);
-    fprintf(resf, "%f ", SINGLETEMP);
-    if (HISTORY) printf("temperature: %f\n", SINGLETEMP);
-    parall_measure_cycle(startgrid, dev_grid, EXP4, EXP8, d_rngStates, resf);
+    // const float EXP4 = exp( -(4.*J) / SINGLETEMP);
+    // const float EXP8 = exp( -(8.*J) / SINGLETEMP);
+    // fprintf(resf, "%f ", SINGLETEMP);
+    // if (HISTORY) printf("temperature: %f\n", SINGLETEMP);
+    // parall_measure_cycle(startgrid, dev_grid, EXP4, EXP8, d_rngStates, resf);
     
-    printf(" ERROR? rng malloc size: %i\n", THR_NUMBER*THR_NUMBER*BLOCK_NUMBER*BLOCK_NUMBER*sizeof(curandState));
-    printf(" ERROR? shared memory used: %i\n", THR_NUMBER*THR_NUMBER*sizeof(MULTISPIN) + BLOCK_NUMBER*BLOCK_NUMBER*MULTISIZE*sizeof(int));
+    // printf(" ERROR? rng malloc size: %i\n", THR_NUMBER*THR_NUMBER*BLOCK_NUMBER*BLOCK_NUMBER*sizeof(curandState));
+    // printf(" ERROR? shared memory used: %i\n", THR_NUMBER*THR_NUMBER*sizeof(MULTISPIN) + BLOCK_NUMBER*BLOCK_NUMBER*MULTISIZE*sizeof(int));
 
     cudaFree(d_rngStates);
     cudaFree(dev_grid);
@@ -634,7 +634,7 @@ int main() {
     cudaEventElapsedTime(&total_time, start, stop);
 
     FILE *timef = fopen("time.txt", "w");
-    long int total_flips = ((long int)(n_temps))* ((long int)((STEPS_REPEAT))) * ((long int)(T_MAX_SIM)) * ((long int)(NTOT));
+    long int total_flips = ((long int)(n_temps))* ((long int)((STEPS_REPEAT))) * ((long int)(T_MAX_SIM)) * ((long int)(MULTISIZE)) * ((long int)(NTOT));
     
     fprintf(timef, "# gpu1\n");
     fprintf(timef, "# total execution time (milliseconds):\n");

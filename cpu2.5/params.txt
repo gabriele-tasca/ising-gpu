@@ -1,7 +1,0 @@
-temperature 2.26918531421
-temperature_start 0.0
-coupling 1.0
-simulation_t_max 200
-thermalization_time 50
-time_between_measurements 5
-base_random_seed 1000

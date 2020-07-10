@@ -1,2 +1,0 @@
-#!/bin/bash
-./main.x > end.txt && gprof main.x gmon.out > profile.txt

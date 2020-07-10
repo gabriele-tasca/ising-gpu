@@ -469,7 +469,7 @@ __global__ void dev_measure_cycle_kernel(MULTISPIN * dev_grid, curandState * con
 
 }
 
-void parall_measure_cycle(MULTISPIN startgrid[L*L], MULTISPIN * dev_grid, float exp4, float exp8, curandState * const rngStates, FILE *resf, FILE *corrf) {
+void parall_measure_cycle(MULTISPIN startgrid[L*L], MULTISPIN * dev_grid, float exp4, float exp8, curandState * const rngStates, FILE *resf) {
 
 
     float n_measures_per_sim = (float) ((T_MAX_SIM - T_MEASURE_WAIT)/T_MEASURE_INTERVAL);

@@ -10,6 +10,7 @@
 const int THR_NUMBER = 30;
 
 #define SETBLOCKNUM 5
+// #define L 122
 const int L = (THR_NUMBER -2)* SETBLOCKNUM +2;
 
 // #define MULTISPIN unsigned char
@@ -24,6 +25,7 @@ const int MULTISIZE = sizeof(MULTISPIN) *8;
 
 #define SINGLETEMP 2.26918531
 
+#define SINGLETEMP 2.4
 int n_temps = ( T_CYCLE_END - T_CYCLE_START )/ (T_CYCLE_STEP);
 
 #define J 1.
@@ -35,13 +37,10 @@ const int NTOT = (L-2)*(L-2);
 // static const float EXP4_TRESHOLD = exp( -(4.*J) / T);
 // static const float EXP8_TRESHOLD = exp( -(8.*J) / T);
 
-#define STEPS_REPEAT 2
-#define T_MAX_SIM 20
-#define T_MEASURE_WAIT 0
-#define T_MEASURE_INTERVAL 4
-
-#define MEASURE_MAG 1
-#define MEASURE_CORR_LEN 1
+#define STEPS_REPEAT 3
+#define T_MAX_SIM 100
+#define T_MEASURE_WAIT 20
+#define T_MEASURE_INTERVAL 10
 
 // print history true/false
 #define HISTORY 1
@@ -76,7 +75,40 @@ float stdev( struct avg_tr tr) {
 //     return (  ( tr.sum_squares)/((float) tr.n)  -  pow(( (tr.sum)/((float) tr.n) ),2)  );
 // }
 
-
+//multispin averages, hard-coded to track a number MULTISPIN * STEPS_REPEAT of values
+struct multiavg_tr {
+    float sum[MULTISIZE * STEPS_REPEAT];
+    float sum_squares[MULTISIZE * STEPS_REPEAT];
+    int n; // number of terms in the avg
+};
+// localn is not multisize*steps_repeat, it's the number of terms that will contribute to each avg ...
+struct multiavg_tr new_multiavg_tr(int localn) {
+    struct multiavg_tr a;
+    for(int k=0; k<MULTISIZE * STEPS_REPEAT; k++ ) {
+        a.sum[k] = 0.;
+        a.sum_squares[k] = 0.;
+    }
+    a.n = localn;
+    return a;
+}
+// must be 0 =< k <MULTISIZE * STEPS_REPEAT
+// void update_multiavg(struct multiavg_tr * tr_p, float newval, int k) {
+//     tr_p->sum[k] +=  newval;
+//     tr_p->sum_squares[k] += (newval*newval);
+// }
+__device__ void dev_update_multiavg(struct multiavg_tr * tr_p, float newval, int k) {
+    tr_p->sum[k] +=  newval;
+    tr_p->sum_squares[k] += (newval*newval);
+}
+float multiaverage( struct multiavg_tr tr, int k) {
+    return (tr.sum[k])/((float) tr.n) ;
+}
+float multistdev( struct multiavg_tr tr, int k) {
+    return sqrt(  ( tr.sum_squares[k])/((float) tr.n)  -  pow(( (tr.sum[k])/((float) tr.n) ),2)  );
+}
+// float multivariance( struct multiavg_tr tr, int k) {
+//     return (  ( tr.sum_squares[k])/((float) tr.n)  -  pow(( (tr.sum[k])/((float) tr.n) ),2)  );
+// }
 
 // RNG init kernel
 __global__ void initRNG(curandState * const rngStates, const int seed) {
@@ -219,21 +251,21 @@ __device__ void dev_update_multispin_shared(MULTISPIN grid[THR_NUMBER*THR_NUMBER
     //   1   |   1   |        |              |    
     //  101  |  1 1  |   -8   |  1 0    1 0  |                   
     //   1   |   1   |        |              |
-                                                            
+    //                                                         
     //   0   |   0   |        |              |    
     //  101  |  1 1  |   -4   |  0 1    1 0  |         (j1 | j3)          
     //   1   |   1   |        |              |
-                                                            
+    //                                                         
     //   0   |   0   |        |  0 0    1 0  |    
     //  001  |  0 1  |    0   |      or      |-------------------------                  
     //   1   |   1   |        |  0 1    0 1  |      ~(j1^j3) & (j2&j4))
-    // ------------------------------------------------------------------
-                                                           
+    //------------------------------------------------------------------
+    //                                                        
     //   0   |   0   |        |              |    
     //  000  |  0 0  |    +4  |              |       (j2 | j4) & exp4      
     //   1   |   1   |        |              |
-    // ------------------------------------------------------------------ 
-                                                           
+    //------------------------------------------------------------------ 
+    //                                                        
     //   0   |   0   |        |              |    
     //  000  |  0 0  |    +8  |  0 0    0 0  |           exp8       
     //   0   |   0   |        |              |
@@ -322,8 +354,7 @@ __global__ void dev_measure_cycle_kernel(MULTISPIN * dev_grid, curandState * con
                 if ( threadIdx.x != 0 && threadIdx.x != THR_NUMBER-1 && threadIdx.y != 0 && threadIdx.y != THR_NUMBER-1 ) {
 
                     int lspin = (int) dev_read_spin(shared_grid[threadIdx.x + threadIdx.y*THR_NUMBER], multik );
-                    atomicAdd(  &(blocksum[ multik ]), lspin  ); // change with pointer arithm?
-
+                    atomicAdd(  &(blocksum[ multik ]), lspin  ); // change with pointer arithm
                 }
                 __syncthreads();
                 if ( threadIdx.x == 0 && threadIdx.y == 0 ) {
@@ -626,10 +657,9 @@ int main() {
     // for( float kt=T_CYCLE_START; kt<T_CYCLE_END; kt+=T_CYCLE_STEP ) {
     //     const float EXP4 = exp( -(4.*J) / kt);
     //     const float EXP8 = exp( -(8.*J) / kt);
-    //     fprintf(resf, "%f ", kt);        
-    //     fprintf(corrf, "\n#T = \n%f\n", kt);
+    //     fprintf(resf, "%f ", kt);
     //     if (HISTORY) printf("temperature: %f\n", kt);
-    //     parall_measure_cycle(startgrid, dev_grid, EXP4, EXP8, d_rngStates, resf, corrf);
+    //     parall_measure_cycle(startgrid, dev_grid, EXP4, EXP8, d_rngStates, resf);
     // }
 
     // // // // only 1:
@@ -638,7 +668,7 @@ int main() {
     const float EXP8 = exp( -(8.*J) / SINGLETEMP);
     fprintf(resf, "%f ", SINGLETEMP);
     if (HISTORY) printf("temperature: %f\n", SINGLETEMP);
-    parall_measure_cycle(startgrid, dev_grid, EXP4, EXP8, d_rngStates, resf, corrf);
+    parall_measure_cycle(startgrid, dev_grid, EXP4, EXP8, d_rngStates, resf);
     
     printf(" ERROR? rng malloc size: %i\n", THR_NUMBER*THR_NUMBER*BLOCK_NUMBER*BLOCK_NUMBER*sizeof(curandState));
     printf(" ERROR? shared memory used: %i\n", THR_NUMBER*THR_NUMBER*sizeof(MULTISPIN) + BLOCK_NUMBER*BLOCK_NUMBER*MULTISIZE*sizeof(int));
@@ -653,7 +683,7 @@ int main() {
     cudaEventElapsedTime(&total_time, start, stop);
 
     FILE *timef = fopen("time.txt", "w");
-    long int total_flips = ((long int)(n_temps))* ((long int)((STEPS_REPEAT))) * ((long int)(T_MAX_SIM)) * ((long int)(MULTISIZE)) * ((long int)(NTOT));
+    long int total_flips = ((long int)(n_temps))* ((long int)((STEPS_REPEAT))) * ((long int)(T_MAX_SIM)) * ((long int)(NTOT));
     
     fprintf(timef, "# gpu1\n");
     fprintf(timef, "# total execution time (milliseconds):\n");

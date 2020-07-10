@@ -74,41 +74,6 @@ float stdev( struct avg_tr tr) {
 //     return (  ( tr.sum_squares)/((float) tr.n)  -  pow(( (tr.sum)/((float) tr.n) ),2)  );
 // }
 
-//multispin averages, hard-coded to track a number MULTISPIN * STEPS_REPEAT of values
-struct multiavg_tr {
-    float sum[MULTISIZE * STEPS_REPEAT];
-    float sum_squares[MULTISIZE * STEPS_REPEAT];
-    int n; // number of terms in the avg
-};
-// localn is not multisize*steps_repeat, it's the number of terms that will contribute to each avg ...
-struct multiavg_tr new_multiavg_tr(int localn) {
-    struct multiavg_tr a;
-    for(int k=0; k<MULTISIZE * STEPS_REPEAT; k++ ) {
-        a.sum[k] = 0.;
-        a.sum_squares[k] = 0.;
-    }
-    a.n = localn;
-    return a;
-}
-// must be 0 =< k <MULTISIZE * STEPS_REPEAT
-// void update_multiavg(struct multiavg_tr * tr_p, float newval, int k) {
-//     tr_p->sum[k] +=  newval;
-//     tr_p->sum_squares[k] += (newval*newval);
-// }
-__device__ void dev_update_multiavg(struct multiavg_tr * tr_p, float newval, int k) {
-    tr_p->sum[k] +=  newval;
-    tr_p->sum_squares[k] += (newval*newval);
-}
-float multiaverage( struct multiavg_tr tr, int k) {
-    return (tr.sum[k])/((float) tr.n) ;
-}
-float multistdev( struct multiavg_tr tr, int k) {
-    return sqrt(  ( tr.sum_squares[k])/((float) tr.n)  -  pow(( (tr.sum[k])/((float) tr.n) ),2)  );
-}
-// float multivariance( struct multiavg_tr tr, int k) {
-//     return (  ( tr.sum_squares[k])/((float) tr.n)  -  pow(( (tr.sum[k])/((float) tr.n) ),2)  );
-// }
-
 // RNG init kernel
 __global__ void initRNG(curandState * const rngStates, const int seed) {
     // Determine thread ID
@@ -150,12 +115,7 @@ __device__ void dev_set_spin_0 (MULTISPIN * multi, int index) {
     *multi &= ~(1 << index);
 }
 __device__ MULTISPIN dev_read_spin(MULTISPIN multi, int index) {
-    // return (( multi >> ((MULTISPIN) index ) ) & ((MULTISPIN) 1));
-    // if (multi & (1 << index) == 0) {
-    //     return 0;
-    // } else {
-    //     return 1;
-    // }
+
     return ( (multi >> index) & 1 );
 }
 // each bit exp8 and exp8 describes the Metropolis RNG result for that bit,
@@ -209,9 +169,6 @@ void init_t0_grid(MULTISPIN grid[L*L]) {
     }
 }
 
-// void flip(MULTISPIN grid[L*L], int x, int y) {
-//     grid[x+y*L] = ~grid[x+y*L];
-// }
 
 // can segfault 
 __device__ static inline MULTISPIN dev_shared_grid_step(MULTISPIN shared_grid[THR_NUMBER*THR_NUMBER], int x, int y, int xstep, int ystep) {

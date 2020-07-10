@@ -9,7 +9,7 @@
 // L should be  (multiple of (THR_NUMBER - 2) ) + 2
 const int THR_NUMBER = 30;
 
-#define SETBLOCKNUM 7
+#define SETBLOCKNUM 5
 const int L = (THR_NUMBER -2)* SETBLOCKNUM +2;
 
 // #define MULTISPIN unsigned char
@@ -18,11 +18,11 @@ const int L = (THR_NUMBER -2)* SETBLOCKNUM +2;
 const int MULTISIZE = sizeof(MULTISPIN) *8;
 
 
-#define T_CYCLE_START 1.4
-#define T_CYCLE_END 3.1
-#define T_CYCLE_STEP 0.02
+#define T_CYCLE_START 2.26
+#define T_CYCLE_END 2.275
+#define T_CYCLE_STEP 0.002
 
-#define SINGLETEMP 3.0
+#define SINGLETEMP 2.26918531
 
 int n_temps = ( T_CYCLE_END - T_CYCLE_START )/ (T_CYCLE_STEP);
 
@@ -35,13 +35,16 @@ const int NTOT = (L-2)*(L-2);
 // static const float EXP4_TRESHOLD = exp( -(4.*J) / T);
 // static const float EXP8_TRESHOLD = exp( -(8.*J) / T);
 
-#define STEPS_REPEAT 3
-#define T_MAX_SIM 600
-#define T_MEASURE_WAIT 50
-#define T_MEASURE_INTERVAL 10
+#define STEPS_REPEAT 2
+#define T_MAX_SIM 20
+#define T_MEASURE_WAIT 0
+#define T_MEASURE_INTERVAL 4
+
+#define MEASURE_MAG 1
+#define MEASURE_CORR_LEN 1
 
 // print history true/false
-#define HISTORY 0
+#define HISTORY 1
 
 const int BLOCK_NUMBER  = ( L-2)/( THR_NUMBER - 2 );
 const dim3 BLOCKS( BLOCK_NUMBER, BLOCK_NUMBER );
@@ -73,40 +76,7 @@ float stdev( struct avg_tr tr) {
 //     return (  ( tr.sum_squares)/((float) tr.n)  -  pow(( (tr.sum)/((float) tr.n) ),2)  );
 // }
 
-//multispin averages, hard-coded to track a number MULTISPIN * STEPS_REPEAT of values
-struct multiavg_tr {
-    float sum[MULTISIZE * STEPS_REPEAT];
-    float sum_squares[MULTISIZE * STEPS_REPEAT];
-    int n; // number of terms in the avg
-};
-// localn is not multisize*steps_repeat, it's the number of terms that will contribute to each avg ...
-struct multiavg_tr new_multiavg_tr(int localn) {
-    struct multiavg_tr a;
-    for(int k=0; k<MULTISIZE * STEPS_REPEAT; k++ ) {
-        a.sum[k] = 0.;
-        a.sum_squares[k] = 0.;
-    }
-    a.n = localn;
-    return a;
-}
-// must be 0 =< k <MULTISIZE * STEPS_REPEAT
-// void update_multiavg(struct multiavg_tr * tr_p, float newval, int k) {
-//     tr_p->sum[k] +=  newval;
-//     tr_p->sum_squares[k] += (newval*newval);
-// }
-// __device__ void dev_update_multiavg(struct multiavg_tr * tr_p, float newval, int k) {
-//     tr_p->sum[k] +=  newval;
-//     tr_p->sum_squares[k] += (newval*newval);
-// }
-float multiaverage( struct multiavg_tr tr, int k) {
-    return (tr.sum[k])/((float) tr.n) ;
-}
-float multistdev( struct multiavg_tr tr, int k) {
-    return sqrt(  ( tr.sum_squares[k])/((float) tr.n)  -  pow(( (tr.sum[k])/((float) tr.n) ),2)  );
-}
-// float multivariance( struct multiavg_tr tr, int k) {
-//     return (  ( tr.sum_squares[k])/((float) tr.n)  -  pow(( (tr.sum[k])/((float) tr.n) ),2)  );
-// }
+
 
 // RNG init kernel
 __global__ void initRNG(curandState * const rngStates, const int seed) {
@@ -311,7 +281,7 @@ void multidump_a_few(MULTISPIN grid[L*L]) {
 }
 
 
-__global__ void dev_measure_cycle_kernel(MULTISPIN * dev_grid, curandState * const rngStates, float * dev_single_run_avgs, int * dev_partial_res, float exp4, float exp8, int ksim ) {
+__global__ void dev_measure_cycle_kernel(MULTISPIN * dev_grid, curandState * const rngStates, int * dev_single_run_corr_lens, int* dev_bin_counters, float * dev_single_run_avgs, int * dev_partial_res, float exp4, float exp8, int ksim ) {
 
 
         // setup
@@ -328,6 +298,8 @@ __global__ void dev_measure_cycle_kernel(MULTISPIN * dev_grid, curandState * con
         shared_grid[ threadIdx.x + threadIdx.y*THR_NUMBER ] = dev_grid[(glob_x )+ (glob_y )*L ];
         __syncthreads();
         
+        // allocate shared memory for measure results
+        // magnetization
         __shared__ int blocksum[ MULTISIZE ];
         
         if ( threadIdx.x == 0 && threadIdx.y == 0 ) {
@@ -335,44 +307,54 @@ __global__ void dev_measure_cycle_kernel(MULTISPIN * dev_grid, curandState * con
                 blocksum[ multik ] = 0;
             }
         }
+        
 
         __syncthreads();
 
         ////////////////////////////////////////////
-        ////// measure magnetization
+        ////// measure 
         ////////////////////////////////////////////
         if(ksim > T_MEASURE_WAIT && ksim % T_MEASURE_INTERVAL == 0) {
         // this condition does not depend on the thread id in any way
             for (int multik=0; multik<MULTISIZE; multik++) {
-                
-                if ( threadIdx.x != 0 && threadIdx.x != THR_NUMBER-1 
-                    && threadIdx.y != 0 && threadIdx.y != THR_NUMBER-1 ) {
+
+                // magnetization 
+                if ( threadIdx.x != 0 && threadIdx.x != THR_NUMBER-1 && threadIdx.y != 0 && threadIdx.y != THR_NUMBER-1 ) {
+
                     int lspin = (int) dev_read_spin(shared_grid[threadIdx.x + threadIdx.y*THR_NUMBER], multik );
                     atomicAdd(  &(blocksum[ multik ]), lspin  ); // change with pointer arithm?
+
                 }
                 __syncthreads();
                 if ( threadIdx.x == 0 && threadIdx.y == 0 ) {
+
                     int blockntot = (THR_NUMBER-2)*(THR_NUMBER-2);
                     float nval = ((float) ( blocksum[ multik] *2 - blockntot ))/ ( (float) blockntot );
                     atomicAdd(&(dev_single_run_avgs[multik]), nval);
                     blocksum[ multik  ] = 0;
+
+                }
+
+                // correlation length
+                int s0 = ( (int) dev_read_spin( dev_grid[ glob_x + glob_y*L ], multik ) )*2 -1;
+                for (int loop_x=1; loop_x<=(L-2); loop_x++) {
+                    for (int loop_y=1; loop_y<=(L-2); loop_y++) {
+                        float dist = sqrt( pow( glob_x - (float) loop_x, 2) + pow(glob_y - (float) loop_y, 2)  );
+                        if (dist > 1.0 && dist < (L-2)) {
+                            int bin = (int) (floor(dist)) -1;
+
+                            int s1 = ( (int) dev_read_spin( dev_grid[ loop_x + loop_y*L ], multik ) )*2 -1;
+
+                            atomicAdd(&(dev_single_run_corr_lens[ multik*(L-2) + bin]), (s0 * s1)); // pointer arithm?
+                            atomicAdd(&(dev_bin_counters[ multik*(L-2) + bin]), 1); // pointer arithm?
+
+                        }
+                    }
                 }
 
 
 
             }
-            // if ( threadIdx.y == 1 && threadIdx.x == 1 ) {
-            //     for(int multik=0; multik <MULTISIZE; multik++) {
-            //         dev_partial_res[multik] = 0;
-            //     }
-            //     printf(" devpart before %i\n", dev_partial_res[0]);
-                
-            // }
-            // __syncthreads();
-
-            
-
-
 
 
         }
@@ -456,21 +438,26 @@ __global__ void dev_measure_cycle_kernel(MULTISPIN * dev_grid, curandState * con
 
 }
 
-void parall_measure_cycle(MULTISPIN startgrid[L*L], MULTISPIN * dev_grid, float exp4, float exp8, curandState * const rngStates, FILE *resf) {
+void parall_measure_cycle(MULTISPIN startgrid[L*L], MULTISPIN * dev_grid, float exp4, float exp8, curandState * const rngStates, FILE *resf, FILE *corrf) {
 
 
     float n_measures_per_sim = (float) ((T_MAX_SIM - T_MEASURE_WAIT)/T_MEASURE_INTERVAL);
 
-    //OUTER REP LOOP  
-    // struct multiavg_tr single_run_avgs = new_multiavg_tr(n_measures_per_sim);
-    // struct multiavg_tr * dev_single_run_avgs;
-    // cudaMalloc(&dev_single_run_avgs, sizeof(struct multiavg_tr));
-    // cudaMemcpy(dev_single_run_avgs, &single_run_avgs, sizeof(struct multiavg_tr), cudaMemcpyHostToDevice);
+    // space for tracking the correlation length
+    int single_run_corr_lens[MULTISIZE*(L-2)];
+    for (int k=0; k<MULTISIZE*(L-2); k++) {single_run_corr_lens[k] = 0;}
+    int * dev_single_run_corr_lens;
+    cudaMalloc(&dev_single_run_corr_lens, MULTISIZE*(L-2)*sizeof(int));
+    cudaMemcpy(dev_single_run_corr_lens, &single_run_corr_lens, MULTISIZE*(L-2)*sizeof(int), cudaMemcpyHostToDevice);
 
-    // extra space needed by update_magnetization
-    // int * dev_partial_res;
-    // cudaMalloc(&dev_partial_res, sizeof(int));
+    // extra space
+    int bin_counters[MULTISIZE*(L-2)];
+    for (int k=0; k<MULTISIZE*(L-2); k++) {bin_counters[k] = 0;}
+    int * dev_bin_counters;
+    cudaMalloc(&dev_bin_counters, MULTISIZE*(L-2)*sizeof(int));
+    cudaMemcpy(dev_bin_counters, &bin_counters, MULTISIZE*(L-2)*sizeof(int), cudaMemcpyHostToDevice);
 
+    // space for tracking magnetization
     float single_run_avgs[MULTISIZE];
     for (int k=0; k<MULTISIZE; k++) {single_run_avgs[k] = 0.;}
     float * dev_single_run_avgs;
@@ -488,6 +475,12 @@ void parall_measure_cycle(MULTISPIN startgrid[L*L], MULTISPIN * dev_grid, float 
     // outer average
     struct avg_tr avg_of_runs = new_avg_tr( MULTISIZE * STEPS_REPEAT );
 
+    // corr len outer averages
+    struct avg_tr avg_of_corrs[L-2];
+    for (int lk=0; lk<(L-2); lk++) {
+        avg_of_corrs[lk] = new_avg_tr( MULTISIZE * STEPS_REPEAT );
+    }
+
     for( int krep=0; krep< STEPS_REPEAT; krep++) {
         if (HISTORY) printf("# simulation %i\n", krep+1);
         if (HISTORY) printf("#    waiting thermalization for the first %i sim steps.\n", T_MEASURE_WAIT);
@@ -497,7 +490,7 @@ void parall_measure_cycle(MULTISPIN startgrid[L*L], MULTISPIN * dev_grid, float 
         // kernel
         for (int ksim=0; ksim<T_MAX_SIM; ksim++) {
 
-            dev_measure_cycle_kernel<<<BLOCKS, THREADS>>>(dev_grid, rngStates, dev_single_run_avgs, dev_partial_res, exp4, exp8, ksim );
+            dev_measure_cycle_kernel<<<BLOCKS, THREADS>>>(dev_grid, rngStates, dev_single_run_corr_lens, dev_bin_counters, dev_single_run_avgs, dev_partial_res, exp4, exp8, ksim );
         }
             cudaError_t err = cudaGetLastError();
         if (err != cudaSuccess) {
@@ -505,6 +498,7 @@ void parall_measure_cycle(MULTISPIN startgrid[L*L], MULTISPIN * dev_grid, float 
         } else printf("kernel: no ERROR: %s\n", cudaGetErrorString(err));
 
         // results
+        // magnetization
         cudaMemcpy(&single_run_avgs, dev_single_run_avgs, MULTISIZE*sizeof(float), cudaMemcpyDeviceToHost);
         for(int multik=0; multik <MULTISIZE; multik++) {
             float lres = single_run_avgs[multik] / (n_measures_per_sim * BLOCK_NUMBER*BLOCK_NUMBER); // change
@@ -514,37 +508,51 @@ void parall_measure_cycle(MULTISPIN startgrid[L*L], MULTISPIN * dev_grid, float 
             single_run_avgs[multik] = 0.;
             partial_res[multik] = 0;
         }
+        //reset on device
         cudaMemcpy(dev_single_run_avgs, &single_run_avgs, MULTISIZE*sizeof(float), cudaMemcpyHostToDevice);
         cudaMemcpy(dev_partial_res, &   partial_res, MULTISIZE*sizeof(int), cudaMemcpyHostToDevice);
 
+        // corr len
+        cudaMemcpy(&single_run_corr_lens, dev_single_run_corr_lens, MULTISIZE*(L-2)*sizeof(int), cudaMemcpyDeviceToHost);
+        cudaMemcpy(&bin_counters, dev_bin_counters, MULTISIZE*(L-2)*sizeof(int), cudaMemcpyDeviceToHost);
+        for (int lk=0; lk<(L-2); lk++) {
+            
+            for(int multik=0; multik <MULTISIZE; multik++) {
+                float lres = ((float) (single_run_corr_lens[multik*(L-2) + lk])) / ( (float)(bin_counters[multik*(L-2) + lk])  ); // change
+                if (HISTORY) printf("# correlation on bit %i for r = %i\n: %f\n", multik+1, lk+1, lres);
+                update_avg(&avg_of_corrs[lk], lres);
+                // reset averages
+                single_run_corr_lens[multik*(L-2) + lk] = 0.;
+                bin_counters[multik*(L-2) + lk] = 0.;
+
+            }
+        
+        }
+        // reset on device        
+        cudaMemcpy(dev_single_run_corr_lens, &single_run_corr_lens, MULTISIZE*(L-2)*sizeof(int), cudaMemcpyHostToDevice);
+        cudaMemcpy(dev_bin_counters, &bin_counters, MULTISIZE*(L-2)*sizeof(int), cudaMemcpyHostToDevice);
 
         if (HISTORY) printf("# end simulation %i\n", krep+1);
     }
     // END OUTER REPETITION LOOP
 
+    // magn
     float l2av =  average(avg_of_runs);
     float l2stdev =  stdev(avg_of_runs);
     if (HISTORY) printf("# overall average \n: %f +- %f\n", l2av, l2stdev);
     fprintf(resf, "%f ", l2av);
     fprintf(resf, "%f\n", l2stdev);
 
-    // cudaMemcpy(&single_run_avgs, dev_single_run_avgs, sizeof(struct multiavg_tr), cudaMemcpyDeviceToHost);
-    
-    // ///////////////
-    // struct avg_tr avg_of_runs = new_avg_tr( MULTISIZE * STEPS_REPEAT );
-    // for(int k=0; k <MULTISIZE * STEPS_REPEAT; k++) {
-    //     float lres = multiaverage(single_run_avgs, k);
-    //     float lstdev = multistdev(single_run_avgs, k);
+    // corr len
+    for (int lk=0; lk<(L-2); lk++) {
+        float l2corr =  average(avg_of_corrs[lk]);
+        float l2stdcorr =  stdev(avg_of_corrs[lk]);
+        fprintf(corrf, "%i ", lk+1);
+        fprintf(corrf, "%f ", l2corr);
+        fprintf(corrf, "%f\n", l2stdcorr);
+    }
+    fprintf(corrf, "\n");
 
-    //     if (HISTORY) printf("# average of simulation %i\n: %f +- %f\n", k+1, lres, lstdev);
-    //     update_avg(&avg_of_runs, lres);
-    // }
-    // float l2av =  average(avg_of_runs);
-    // float l2stdev =  stdev(avg_of_runs);
-    // if (HISTORY) printf("# overall average \n: %f +- %f\n", l2av, l2stdev);
-    // fprintf(resf, "%f ", l2av);
-    // fprintf(resf, "%f\n", l2stdev);
-    // ////////////////
 
     // grid for displaying end-state (of last rep only)
     MULTISPIN endgrid[L*L];
@@ -578,6 +586,16 @@ int main() {
     fprintf(resf, "\n");
     fprintf(resf, "# columns: temperature - average magnetization - uncertainty \n");
     
+    FILE *corrf = fopen("corr.txt", "w");
+    fprintf(corrf, "# gpu1\n");
+    fprintf(corrf, "# parameters:\n# linear_size: %i\n", L);
+    fprintf(corrf, "# coupling: %f\n# repetitions: %i\n", J, STEPS_REPEAT);
+    fprintf(corrf, "# simulation_t_max: %i\n# thermalization_time: %i\n# time_between_measurements: %i\n# base_random_seed: %i\n",  T_MAX_SIM,T_MEASURE_WAIT, T_MEASURE_INTERVAL, SEED);
+    fprintf(corrf, "# extra:\n# area: %i\n# active_spins_excluding_boundaries:%i\n", AREA, NTOT);
+    fprintf(corrf, "\n");
+    fprintf(corrf, "# columns: temperature - average magnetization - uncertainty \n");
+
+
     // still used for init_random_grid
     srand(SEED);
 
@@ -605,24 +623,25 @@ int main() {
     // multidump_a_few(startgrid);
 
     // // temp cycle:
-    for( float kt=T_CYCLE_START; kt<T_CYCLE_END; kt+=T_CYCLE_STEP ) {
-        const float EXP4 = exp( -(4.*J) / kt);
-        const float EXP8 = exp( -(8.*J) / kt);
-        fprintf(resf, "%f ", kt);
-        if (HISTORY) printf("temperature: %f\n", kt);
-        parall_measure_cycle(startgrid, dev_grid, EXP4, EXP8, d_rngStates, resf);
-    }
+    // for( float kt=T_CYCLE_START; kt<T_CYCLE_END; kt+=T_CYCLE_STEP ) {
+    //     const float EXP4 = exp( -(4.*J) / kt);
+    //     const float EXP8 = exp( -(8.*J) / kt);
+    //     fprintf(resf, "%f ", kt);        
+    //     fprintf(corrf, "\n#T = \n%f\n", kt);
+    //     if (HISTORY) printf("temperature: %f\n", kt);
+    //     parall_measure_cycle(startgrid, dev_grid, EXP4, EXP8, d_rngStates, resf, corrf);
+    // }
 
     // // // // only 1:
     // // // // just one:
-    // const float EXP4 = exp( -(4.*J) / SINGLETEMP);
-    // const float EXP8 = exp( -(8.*J) / SINGLETEMP);
-    // fprintf(resf, "%f ", SINGLETEMP);
-    // if (HISTORY) printf("temperature: %f\n", SINGLETEMP);
-    // parall_measure_cycle(startgrid, dev_grid, EXP4, EXP8, d_rngStates, resf);
+    const float EXP4 = exp( -(4.*J) / SINGLETEMP);
+    const float EXP8 = exp( -(8.*J) / SINGLETEMP);
+    fprintf(resf, "%f ", SINGLETEMP);
+    if (HISTORY) printf("temperature: %f\n", SINGLETEMP);
+    parall_measure_cycle(startgrid, dev_grid, EXP4, EXP8, d_rngStates, resf, corrf);
     
-    // printf(" ERROR? rng malloc size: %i\n", THR_NUMBER*THR_NUMBER*BLOCK_NUMBER*BLOCK_NUMBER*sizeof(curandState));
-    // printf(" ERROR? shared memory used: %i\n", THR_NUMBER*THR_NUMBER*sizeof(MULTISPIN) + BLOCK_NUMBER*BLOCK_NUMBER*MULTISIZE*sizeof(int));
+    printf(" ERROR? rng malloc size: %i\n", THR_NUMBER*THR_NUMBER*BLOCK_NUMBER*BLOCK_NUMBER*sizeof(curandState));
+    printf(" ERROR? shared memory used: %i\n", THR_NUMBER*THR_NUMBER*sizeof(MULTISPIN) + BLOCK_NUMBER*BLOCK_NUMBER*MULTISIZE*sizeof(int));
 
     cudaFree(d_rngStates);
     cudaFree(dev_grid);

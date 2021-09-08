@@ -1,0 +1,7 @@
+# gpu1
+# total execution time (milliseconds):
+70.929794
+# total spin flips performed:
+175616000
+# average spin flips per millisecond:
+2475913.002492

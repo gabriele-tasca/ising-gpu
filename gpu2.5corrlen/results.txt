@@ -1,0 +1,15 @@
+# gpu1
+# parameters:
+# linear_size: 142
+# coupling: 1.000000
+# repetitions: 2
+# simulation_t_max: 20
+# thermalization_time: 0
+# time_between_measurements: 4
+# base_random_seed: 1000
+# extra:
+# area: 20164
+# active_spins_excluding_boundaries:19600
+
+# columns: temperature - average magnetization - uncertainty 
+2.269185 0.000000 0.000000
